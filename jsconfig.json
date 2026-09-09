@@ -1,0 +1,15 @@
+{
+  "//": "Type checking without a build step. VSCode's bundled TypeScript service reads this and checks the JSDoc annotations in js/types.js against every use. The parsers carry ~24 quirk rules over a spreadsheet whose columns are Chinese strings, so a silent type slip would show up as a wrong number rather than an error - this is the safety net that replaces a bundler.",
+  "compilerOptions": {
+    "checkJs": true,
+    "strict": true,
+    "noImplicitAny": false,
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "noEmit": true
+  },
+  "include": ["js/**/*.js"],
+  "exclude": ["vendor"]
+}

@@ -1,0 +1,513 @@
+/* Palette and chrome.
+   Light only, deliberately: one surface to design against means a colour can
+   be picked once and trusted - with two themes every accent has to be
+   re-validated against a second background. `color-scheme: light` also stops
+   the browser painting form controls dark under an OS dark setting.
+
+   The categorical slots below are a validated set, in a validated ORDER: the
+   ordering is the colour-vision safety mechanism, not decoration. Worst
+   adjacent CVD ΔE 9.1, worst adjacent normal-vision ΔE 19.6 - both clear of
+   the gates. Reordering them silently breaks that, so don't. */
+
+:root {
+  color-scheme: light;
+
+  --surface-1: #fcfcfb;          /* cards, chart surface */
+  --surface-2: #f6f6f3;          /* page plane */
+  --surface-3: #f1f1ed;          /* table stripe, chips, tracks */
+  --text-1: #0b0b0b;
+  --text-2: #52514e;
+  --text-muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.09);
+  --border-strong: rgba(11, 11, 11, 0.14);
+
+  --series-1: #2a78d6;           /* blue */
+  --series-2: #eb6834;           /* orange */
+  --series-3: #1baf7a;           /* aqua */
+  --series-4: #eda100;           /* yellow */
+  --series-5: #e87ba4;           /* magenta */
+  --series-6: #008300;           /* green */
+  --series-7: #4a3aa7;           /* violet */
+  --series-8: #e34948;           /* red */
+
+  --seq-100: #cde2fb;
+  --seq-250: #86b6ef;
+  --seq-400: #3987e5;
+  --seq-550: #1c5cab;
+
+  /* 紅漲綠跌 - the Taiwan market convention, and the one AssetSync's own Excel
+     formatting already uses, so a gain is red here and a loss is green. This is
+     the opposite of the Western convention on purpose: the reader's instinct
+     comes from Taiwanese broker apps.
+
+     Red-vs-green fails the colour-vision gate as a pair (validated: CVD ΔE 4.4),
+     so it is NEVER the only channel - every chart that uses it also carries the
+     sign in the bar's direction from a zero baseline and in a signed label, and
+     every figure here prints an explicit + or -. */
+  --up: #d03b3b;                 /* gain / rise */
+  --down: #0f9d58;               /* loss / fall */
+  --up-wash: #fdf0f0;
+  --down-wash: #edf8f2;
+
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --pass: #0f9d58;               /* software convention, only in the self-test */
+  --fail: #d03b3b;
+
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 1px 2px rgba(11, 11, 11, .04), 0 6px 20px rgba(11, 11, 11, .035);
+  --font: system-ui, -apple-system, "Segoe UI", "Noto Sans TC", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--surface-2);
+  color: var(--text-1);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: .01em; }
+a { color: var(--series-1); }
+
+/* ------------------------------------------------------------- top bar --- */
+
+.topbar {
+  display: flex; align-items: center; gap: 16px;
+  padding: 10px 20px;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 40;
+}
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+.brand-mark { font-size: 18px; }
+.topbar-status {
+  display: flex; align-items: center; gap: 6px;
+  color: var(--text-2); font-size: 12.5px;
+  /* The one element allowed to shrink: everything else in the bar is a control
+     that has to stay reachable, so the timestamp is what truncates. */
+  min-width: 0; flex: 0 1 auto; overflow: hidden;
+}
+.topbar-status #freshness-text {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.topbar-status .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--pass); display: inline-block; flex: none;
+}
+/* Amber, not red: stale data is still data, and the only thing that failed is
+   a silent token renewal the user can fix with one click. */
+.topbar-status.stale .dot { background: var(--warning); }
+.topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+.btn {
+  font: inherit; font-size: 13px;
+  padding: 6px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-1); color: var(--text-1);
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.btn:hover { background: var(--surface-3); }
+.btn-primary { background: var(--series-1); border-color: transparent; color: #fff; }
+.btn-primary:hover { filter: brightness(1.08); background: var(--series-1); }
+.btn-lg { font-size: 15px; padding: 10px 22px; }
+.btn-icon { width: 32px; padding: 6px 0; text-align: center; }
+.btn[disabled] { opacity: .5; cursor: default; }
+
+.menu { position: relative; }
+.menu-panel {
+  position: absolute; right: 0; top: calc(100% + 6px);
+  min-width: 290px; padding: 6px;
+  background: var(--surface-1); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); box-shadow: var(--shadow); z-index: 50;
+}
+.menu-info { padding: 8px 10px 10px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+.menu-info-row {
+  display: flex; justify-content: space-between; gap: 12px;
+  font-size: 12.5px; color: var(--text-2);
+}
+.menu-info-row b {
+  color: var(--text-1); font-weight: 600; max-width: 175px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.menu-item {
+  display: block; width: 100%; text-align: left;
+  font: inherit; font-size: 13px; padding: 7px 10px;
+  background: none; border: 0; border-radius: 6px; color: var(--text-1); cursor: pointer;
+}
+.menu-item:hover { background: var(--surface-3); }
+.menu-item.danger { color: var(--critical); }
+
+/* ------------------------------------------------------------- banners --- */
+
+.banners { display: flex; flex-direction: column; }
+.banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 20px; font-size: 13px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-3); color: var(--text-1);
+}
+.banner .icon { font-size: 15px; }
+.banner .spacer { margin-left: auto; }
+.banner.warn { background: color-mix(in srgb, var(--warning) 18%, var(--surface-1)); }
+.banner.bad { background: color-mix(in srgb, var(--critical) 15%, var(--surface-1)); }
+
+/* ---------------------------------------------------------------- tabs --- */
+
+.tabs {
+  display: flex; gap: 2px; padding: 0 14px;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto; position: sticky; top: 53px; z-index: 30;
+}
+.tab {
+  font: inherit; font-size: 13.5px; white-space: nowrap;
+  padding: 11px 14px; border: 0; background: none; cursor: pointer;
+  color: var(--text-2); border-bottom: 2px solid transparent;
+}
+.tab:hover { color: var(--text-1); }
+.tab[aria-selected="true"] {
+  color: var(--text-1); border-bottom-color: var(--series-1); font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- main --- */
+
+main { padding: 18px 20px 72px; max-width: 1480px; margin: 0 auto; min-width: 0; }
+
+/* Wide content scrolls inside its own container (.table-wrap), never by moving
+   the page. A horizontally scrolling body is always a layout bug. */
+html, body { max-width: 100%; overflow-x: hidden; }
+
+.gate { text-align: center; padding: 12vh 20px; }
+.gate h1 { font-size: 28px; margin-bottom: 12px; }
+.gate-lead { color: var(--text-2); margin: 0 0 24px; }
+.gate-note { color: var(--critical); margin-top: 18px; white-space: pre-wrap; }
+
+/* The setup screen is read once, while someone is clicking through the Google
+   Cloud console - so it is left-aligned prose inside the centred gate, not
+   centred text the eye has to re-find on every line. */
+.setup-list {
+  max-width: 640px; margin: 0 auto 24px; padding-left: 20px;
+  text-align: left; color: var(--text-2);
+}
+.setup-list li { margin-bottom: 10px; }
+
+/* --------------------------------------------------------------- cards --- */
+
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+.card {
+  grid-column: span 12;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 15px 17px 17px;
+  box-shadow: var(--shadow);
+  min-width: 0;
+}
+.card.half { grid-column: span 6; }
+.card.third { grid-column: span 4; }
+.card.two-thirds { grid-column: span 8; }
+.card.span-12 { grid-column: span 12; }
+
+/* A container that contributes layout but no chrome - the tiles and the hero
+   carry their own, and nesting two borders around them looks like a mistake. */
+.card.flush {
+  background: none; border: 0; box-shadow: none; padding: 0;
+}
+
+@media (max-width: 1080px) {
+  .card.half, .card.third, .card.two-thirds { grid-column: span 12; }
+}
+
+.card-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px; }
+.card-head h2 { font-size: 14.5px; letter-spacing: .015em; }
+.card-head h2:empty { display: none; }
+.card-head .tools { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.card-note {
+  color: var(--text-2); font-size: 12.5px; margin: 4px 0 12px;
+  max-width: 78ch; line-height: 1.5;
+}
+.card-note.warn { color: var(--serious); }
+
+.warn-list { margin: 0 0 4px; padding-left: 20px; color: var(--text-2); font-size: 12.5px; }
+.warn-list li { margin-bottom: 3px; }
+
+/* ----------------------------------------------------------- the figures --- */
+
+/* Hero figure: the one number a view leads with. Proportional figures, not
+   tabular - at this size `tabular-nums` gives every digit the width of a zero
+   and the number reads loose. */
+.hero {
+  display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px 22px;
+}
+.hero-text { min-width: 0; }
+.hero-label { color: var(--text-2); font-size: 13px; letter-spacing: .02em; }
+.hero-value {
+  font-size: clamp(34px, 5.4vw, 52px);
+  font-weight: 660; line-height: 1.08; letter-spacing: -.015em;
+  margin-top: 2px;
+}
+.hero-delta { display: flex; align-items: baseline; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
+.hero-delta .delta { font-size: 14.5px; font-weight: 600; }
+.hero-delta .delta.up { color: var(--up); }
+.hero-delta .delta.down { color: var(--down); }
+.hero-delta .delta-since { color: var(--text-muted); font-size: 12.5px; }
+.hero-sub { color: var(--text-muted); font-size: 12.5px; margin-top: 4px; }
+.hero-spark { flex: 1 1 240px; min-width: 200px; }
+.spark { width: 100%; height: 66px; }
+
+/* Stat tiles. `auto-fit` rather than a fixed column count so a row of five and
+   a row of six both distribute evenly instead of leaving one orphan. */
+.tile-row {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+}
+/* Same reason as .grid: the tiles hold long unbroken figures, and an `auto`
+   track floor would let one of them widen the row past its container. */
+.tile-row > * { min-width: 0; }
+.tile {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 13px 15px 14px;
+  min-width: 0;
+}
+.tile-label {
+  color: var(--text-2); font-size: 12.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tile-value {
+  font-size: 23px; font-weight: 640; line-height: 1.22; margin-top: 1px;
+  letter-spacing: -.01em;
+}
+.tile-value.up { color: var(--up); }
+.tile-value.down { color: var(--down); }
+.tile-delta { font-size: 12.5px; color: var(--text-2); margin-top: 1px; }
+.tile-delta.up { color: var(--up); }
+.tile-delta.down { color: var(--down); }
+.tile-sub { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+
+/* A headline number inside an ordinary card, above its own chart. */
+.big-line { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 2px 0 10px; }
+.big-value { font-size: 30px; font-weight: 650; letter-spacing: -.012em; }
+.big-value.up { color: var(--up); }
+.big-value.down { color: var(--down); }
+.big-note { color: var(--text-muted); font-size: 12.5px; }
+
+/* ------------------------------------------------------------- filters --- */
+
+/* One row, above the content it scopes - never inside a chart card. */
+.filter-row {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  margin: 0 0 14px;
+}
+.filter-row label {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--text-2);
+}
+
+/* Presets as a segmented control: nobody fights a calendar grid for
+   "last 30 days". Selection is fill *plus* aria-pressed, never colour alone. */
+.segmented {
+  display: inline-flex; padding: 2px; gap: 2px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.seg {
+  font: inherit; font-size: 12.5px;
+  padding: 5px 12px; border: 0; border-radius: 8px;
+  background: none; color: var(--text-2); cursor: pointer;
+  white-space: nowrap;
+}
+.seg:hover { color: var(--text-1); }
+.seg.on {
+  background: var(--surface-1); color: var(--text-1); font-weight: 600;
+  box-shadow: 0 1px 2px rgba(11, 11, 11, .06);
+}
+
+input[type="search"], input[type="text"], select {
+  font: inherit; font-size: 13px; padding: 6px 10px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: var(--surface-1); color: var(--text-1);
+}
+input[type="search"] { min-width: 260px; }
+input[type="search"]:focus, select:focus {
+  outline: 2px solid color-mix(in srgb, var(--series-1) 40%, transparent);
+  outline-offset: 1px;
+}
+
+/* --------------------------------------------------------------- table --- */
+
+.table-wrap { overflow-x: auto; }
+table.data {
+  width: 100%; border-collapse: collapse; font-size: 13px;
+  /* Tabular only in columns, where digits must line up vertically. */
+  font-variant-numeric: tabular-nums;
+}
+table.data th, table.data td {
+  padding: 7px 10px; text-align: right; white-space: nowrap;
+  border-bottom: 1px solid var(--grid);
+}
+table.data th:first-child, table.data td:first-child,
+table.data th.text, table.data td.text { text-align: left; }
+table.data thead th {
+  color: var(--text-2); font-weight: 600; font-size: 12px;
+  letter-spacing: .02em;
+  position: sticky; top: 0; background: var(--surface-1); z-index: 1;
+  border-bottom: 1px solid var(--axis);
+}
+table.data thead th.sortable { cursor: pointer; user-select: none; }
+table.data thead th.sortable:hover { color: var(--text-1); }
+table.data tbody tr:hover { background: var(--surface-3); }
+table.data tbody tr:last-child td { border-bottom: 0; }
+table.data td.dim { color: var(--text-muted); }
+table.data td.up { color: var(--up); }
+table.data td.down { color: var(--down); }
+/* Anything that grows with the data gets a ceiling and its own scrollbar -
+   otherwise one long table pushes every other card off the screen. */
+.scroll-y { max-height: 460px; overflow-y: auto; }
+
+.cell-flag { display: inline-flex; align-items: center; gap: 6px; }
+
+/* A cell that is part number, part bar. One hue: the number beside it already
+   carries magnitude, so the bar is reinforcement and not a value ramp. */
+.bar-cell {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+  min-width: 92px;
+}
+.bar-num { line-height: 1.2; }
+.bar-track {
+  width: 100%; height: 3px; border-radius: 2px;
+  background: var(--surface-3); overflow: hidden;
+  display: block;
+}
+.bar-fill { display: block; height: 100%; border-radius: 2px; background: var(--seq-400); }
+.bar-fill.down { background: var(--down); }
+
+/* --------------------------------------------------------------- chips --- */
+
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 8px; border-radius: 999px; font-size: 12px;
+  background: var(--surface-3); color: var(--text-1); white-space: nowrap;
+}
+/* The chip's text says 買 or 賣, so the wash is reinforcement, not the signal. */
+.chip.buy { background: var(--up-wash); color: var(--up); }
+.chip.sell { background: var(--down-wash); color: var(--down); }
+.chip.flag { background: color-mix(in srgb, var(--warning) 28%, var(--surface-1)); }
+.chip.pass { background: color-mix(in srgb, var(--pass) 18%, var(--surface-1)); }
+.chip.fail { background: color-mix(in srgb, var(--fail) 18%, var(--surface-1)); }
+
+/* -------------------------------------------------------------- charts --- */
+/* An ECharts container needs a resolved height before init, or the chart
+   renders 0px tall and stays that way. Every chart host carries .chart and an
+   explicit height, never a percentage of an auto-height parent. */
+
+.chart { width: 100%; height: 300px; }
+.chart.tall { height: 440px; }
+.chart.short { height: 210px; }
+/* The candlestick review card carries two stacked panels plus a zoom slider,
+   so it needs more room than a single-panel chart. */
+.chart.candles { height: 560px; }
+/* Holds the vertical space while prices are being fetched, so the card does
+   not collapse and then shove the page down when the chart arrives. */
+.chart-load {
+  height: 560px; display: flex; align-items: center; justify-content: center;
+}
+
+/* A legend, in HTML, for the forms ECharts cannot legend itself. */
+.legend {
+  display: flex; flex-wrap: wrap; gap: 14px; margin: 4px 0 10px;
+  font-size: 12.5px; color: var(--text-2);
+}
+.legend .key { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+
+.empty { color: var(--text-muted); padding: 26px 4px; text-align: center; }
+.loading { color: var(--text-2); padding: 40px; text-align: center; }
+/* Refetch keeps the frame: the previous render holds at reduced opacity, so
+   there is no skeleton flash and no layout jump. */
+.refreshing { opacity: .55; transition: opacity .15s; }
+
+.footnote {
+  color: var(--text-muted); font-size: 12px; margin: 10px 0 0;
+  max-width: 78ch; line-height: 1.5;
+}
+kbd, code { font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 12px; }
+
+/* ---------------------------------------------------------------- phone --- */
+/* Two things drive this: vertical space is the scarce resource, and the header
+   must not eat it twice. The top bar stops being sticky (the tab strip is what
+   you actually navigate with) and the tabs take over the top slot - otherwise
+   the tabs' `top` offset has to track a bar whose height changes when it wraps. */
+
+@media (max-width: 700px) {
+  body { font-size: 13.5px; }
+
+  .topbar { position: static; padding: 8px 12px; gap: 10px; }
+  .brand { flex: none; }
+  .brand-text { font-size: 14px; white-space: nowrap; }
+  .topbar-status { font-size: 11.5px; }
+  /* 重新整理 stays reachable in the ⋯ menu; two buttons do not fit. */
+  #btn-refresh { display: none; }
+  .menu-panel { min-width: min(300px, calc(100vw - 24px)); }
+
+  .tabs { top: 0; padding: 0 6px; }
+  .tab { padding: 10px 10px; font-size: 13px; }
+
+  main { padding: 12px 10px 56px; }
+  .grid { gap: 10px; }
+  .card { padding: 13px 13px 15px; border-radius: 10px; }
+  .card-head h2 { font-size: 14px; }
+  .card-note, .footnote { font-size: 12px; }
+
+  .hero { padding: 16px 16px; gap: 14px; }
+  .hero-value { font-size: 34px; }
+  .hero-spark { flex: 1 1 100%; }
+  .spark { height: 54px; }
+
+  .tile-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .tile { padding: 11px 12px 12px; border-radius: 10px; }
+  .tile-value { font-size: 19px; }
+  .big-value { font-size: 25px; }
+
+  /* Filters go full width so the touch targets are not 20px slivers. */
+  .filter-row { gap: 8px; }
+  .filter-row label { width: 100%; }
+  input[type="search"] { width: 100%; min-width: 0; flex: 1 1 auto; }
+  .segmented { width: 100%; justify-content: space-between; }
+  .seg { flex: 1 1 auto; padding: 6px 6px; text-align: center; }
+
+  table.data { font-size: 12.5px; }
+  table.data th, table.data td { padding: 6px 7px; }
+  .scroll-y { max-height: 360px; }
+  .bar-cell { min-width: 74px; }
+  .chart { height: 250px; }
+  .chart.tall { height: 340px; }
+  .chart.short { height: 190px; }
+  .chart.candles, .chart-load { height: 420px; }
+  .banner { padding: 8px 12px; font-size: 12.5px; }
+  .gate { padding: 8vh 16px; }
+}
+
+@media (max-width: 420px) {
+  /* At this width the icon alone identifies the app; the words are competing
+     with the data timestamp, which is the thing worth reading. */
+  .brand-text { display: none; }
+}

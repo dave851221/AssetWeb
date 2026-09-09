@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>隱私權政策 · 資產儀表板</title>
+<link rel="stylesheet" href="css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>📊</text></svg>">
+<style>
+  /* A plain document, not the app: prose column, no grid, no cards. */
+  .doc { max-width: 720px; margin: 0 auto; padding: 32px 20px 80px; }
+  .doc h1 { font-size: 26px; margin-bottom: 6px; }
+  .doc h2 { font-size: 17px; margin: 28px 0 8px; }
+  .doc p, .doc li { color: var(--text-2); }
+  .doc ul { padding-left: 22px; }
+  .doc li { margin-bottom: 6px; }
+  .doc .updated { color: var(--text-muted); font-size: 12.5px; margin-bottom: 24px; }
+  .doc .back { display: inline-block; margin-top: 32px; font-size: 13px; }
+</style>
+</head>
+<body>
+<main class="doc">
+
+<h1>隱私權政策</h1>
+<p class="updated">最後更新：2026-09-08　·　適用於「資產儀表板」（asset-web）</p>
+
+<p>
+  這是一個個人使用的資產分析工具，完全在你的瀏覽器裡執行。它沒有後端伺服器、
+  沒有資料庫、也沒有任何分析或追蹤程式碼。
+</p>
+
+<h2>這個應用程式會存取什麼</h2>
+<p>
+  登入後，它只請求 Google 的
+  <code>drive.file</code> 權限，這個權限的範圍是<strong>你透過選檔器親手指定的那一個檔案</strong>。
+  它看不到你雲端硬碟裡的其他任何檔案。除此之外它會讀取你的電子郵件地址與基本個人資料
+  （<code>openid</code>、<code>email</code>、<code>profile</code>），僅用於在畫面上顯示目前登入的帳號，
+  以及在下次換發存取權杖時略過帳號選擇畫面。
+</p>
+
+<h2>資料會去哪裡</h2>
+<p>
+  哪裡都不去。你選擇的試算表會直接從 Google Drive 下載到你的瀏覽器，在本機解析，
+  並在本機繪製圖表。
+</p>
+<ul>
+  <li>檔案內容<strong>不會</strong>被上傳到任何伺服器 — 這個網站沒有伺服器可上傳。</li>
+  <li>解析後的資料存在你瀏覽器的 <code>localStorage</code>，只為了讓下次開啟時能立即顯示。</li>
+  <li>Google 的存取權杖存在 <code>sessionStorage</code>，關閉分頁就消失。</li>
+  <li>沒有 cookie、沒有第三方追蹤、沒有廣告、沒有使用行為記錄。</li>
+  <li>程式使用的兩個外部函式庫（SheetJS、Apache ECharts）是隨網站一起提供的，
+      不會向任何 CDN 或第三方發出請求。</li>
+</ul>
+
+<h2>如何撤銷授權</h2>
+<p>
+  應用程式內按右上角的 ⋯ → 登出，即會向 Google 撤銷授權並清除本機資料。
+  你也可以隨時到
+  <a href="https://myaccount.google.com/connections">Google 帳號 → 已連結的應用程式</a>
+  移除本應用程式。清除瀏覽器的網站資料即可刪除所有本機快取。
+</p>
+
+<h2>資料保留</h2>
+<p>
+  本應用程式不保留任何資料，因為它沒有可以保留資料的地方。所有資料都在你自己的裝置上，
+  由你自己掌控。
+</p>
+
+<h2>聯絡方式</h2>
+<p>有任何問題請寄至 <code>dave851221@gmail.com</code>。</p>
+
+<a class="back" href="index.html">← 回到應用程式</a>
+
+</main>
+</body>
+</html>

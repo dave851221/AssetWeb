@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>資產儀表板</title>
+<link rel="stylesheet" href="css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>📊</text></svg>">
+
+<!-- Vendored, not from a CDN: this page reads private financial data, and a
+     third-party script host would be one more party able to change what runs
+     here. `defer` on both means they execute in document order before the
+     module below, so XLSX and echarts are globals by the time boot.js runs. -->
+<script defer src="vendor/xlsx.full.min.js"></script>
+<script defer src="vendor/echarts.min.js"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">📊</span>
+    <span class="brand-text">資產儀表板</span>
+  </div>
+
+  <div class="topbar-status" id="freshness" hidden>
+    <span class="dot" id="freshness-dot" aria-hidden="true"></span>
+    <span id="freshness-text"></span>
+  </div>
+
+  <div class="topbar-actions">
+    <button class="btn" id="btn-refresh" hidden>重新整理資料</button>
+    <div class="menu">
+      <button class="btn btn-icon" id="btn-menu" aria-haspopup="true" aria-expanded="false"
+              title="更多">⋯</button>
+      <div class="menu-panel" id="menu-panel" hidden>
+        <div class="menu-info">
+          <div class="menu-info-row"><span>檔案</span><b id="menu-file">—</b></div>
+          <div class="menu-info-row"><span>讀取時間</span><b id="menu-fetched">—</b></div>
+          <div class="menu-info-row"><span>AssetSync 更新</span><b id="menu-updated">—</b></div>
+          <div class="menu-info-row"><span>帳號</span><b id="menu-user">—</b></div>
+          <div class="menu-info-row"><span>行情快取</span><b id="menu-prices">—</b></div>
+        </div>
+        <button class="menu-item" id="menu-refresh">重新整理資料</button>
+        <button class="menu-item" id="menu-repick">重新選擇檔案</button>
+        <button class="menu-item" id="menu-clear-prices">清除行情快取</button>
+        <button class="menu-item danger" id="menu-signout">登出</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- Degradation lane: silent renewal failed, access removed, wrong file picked,
+     parser warnings. None of these may become a blank screen - cached data
+     keeps showing underneath. -->
+<div id="banners" class="banners"></div>
+
+<nav class="tabs" id="tabs" hidden></nav>
+
+<main id="main">
+  <section id="gate" class="gate">
+    <h1>資產儀表板</h1>
+    <p class="gate-lead">
+      讀取你自己 Google Drive 上的 <code>AssetSync.xlsx</code>，在瀏覽器內解析並分析。<br>
+      資料不會離開你的電腦，也沒有任何伺服器會看到它。
+    </p>
+    <button class="btn btn-primary btn-lg" id="btn-signin">使用 Google 登入</button>
+    <p class="gate-note" id="gate-note"></p>
+  </section>
+</main>
+
+<script src="js/boot.js" type="module"></script>
+</body>
+</html>

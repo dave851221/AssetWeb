@@ -1,0 +1,17 @@
+# Real financial data. This repo is public, and this file bypasses every gate
+# (?dev=1 loads it without any Google check) - it must never be pushed.
+dev-data.xlsx
+dev-data.json
+
+
+# The OAuth client download from Google Cloud. It carries a client_secret,
+# which this app never uses (the implicit token flow has no secret) - so in a
+# public repo it is pure liability with no upside. The client id itself is
+# public and lives in js/config.js; this file should be deleted once the id has
+# been copied out of it.
+client_secret_*.json
+
+# Editor / OS noise
+.vscode/
+Thumbs.db
+desktop.ini

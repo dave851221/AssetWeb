@@ -537,6 +537,113 @@ export function histogram(values, edges) {
 }
 
 /**
+ * What happened to each sale afterwards: was the position bought back, or not?
+ *
+ * ## Why "sold too early" cannot be answered without this
+ *
+ * The obvious what-if - value the sold shares at today's price and compare
+ * against what they fetched - quietly assumes the position was never re-entered.
+ * Sell at a high, watch it fall, buy the same shares back cheaper, and that
+ * arithmetic still calls the sale a mistake because the price is higher today
+ * than it was on the day. It is not: the shares came back AND the difference
+ * stayed in the account. Selling to buy back lower is the whole point of
+ * trading a position rather than holding it, and a metric that scores it as a
+ * loss is measuring the wrong thing.
+ *
+ * So sales are matched against LATER BUYS of the same (broker, symbol), FIFO,
+ * exactly as buys are matched against later sells for realized P&L. The two
+ * walks are independent views of one timeline: that one asks what a purchase
+ * eventually earned, this one asks what a sale eventually cost.
+ *
+ * Each returned segment carries the reference price its cost should be measured
+ * against - the buy-back price where there was one, and nothing where the shares
+ * never came back, leaving the caller to use today's price for those. Only real
+ * buy orders count as a repurchase: a stock dividend or a share top-up is not a
+ * decision to get back in.
+ *
+ * @typedef {object} SoldShares
+ * @property {Broker}   broker
+ * @property {string}   symbol
+ * @property {string}   name
+ * @property {Currency} currency
+ * @property {string}   sellDate
+ * @property {number}   sellPrice  per share, today's units
+ * @property {number}   qty        today's units
+ * @property {string|null} backDate   null when never repurchased
+ * @property {number|null} backPrice
+ * @property {number|null} gapDays    days between the sale and the buy-back
+ */
+
+/**
+ * @param {Model} m
+ * @returns {SoldShares[]}
+ */
+export function sellFollowUps(m) {
+  const A = m.adjustments;
+  /** @type {Map<string, {name: string, currency: Currency}>} */
+  const about = new Map();
+  /** @type {Map<string, {date: string, side: 'buy'|'sell', qty: number, price: number}[]>} */
+  const timelines = new Map();
+
+  for (const t of m.trades) {
+    const k = key(t.broker, t.symbol);
+    if (!about.has(k)) about.set(k, { name: t.name, currency: t.currency });
+    const qty = t.qty * splitFactor(A, t.symbol, t.date);
+    if (qty <= EPS) continue;
+    const list = timelines.get(k);
+    const ev = { date: t.date, side: t.side, qty, price: t.amount / qty };
+    if (list) list.push(ev);
+    else timelines.set(k, [ev]);
+  }
+
+  /** @type {SoldShares[]} */
+  const out = [];
+  for (const [k, events] of timelines) {
+    const [broker, symbol] = k.split("|");
+    const meta = about.get(k) ?? { name: "", currency: /** @type {Currency} */ ("TWD") };
+    /** @type {{date: string, qty: number, price: number}[]} */
+    const sold = [];
+
+    for (const ev of events) {
+      if (ev.side === "sell") {
+        sold.push({ date: ev.date, qty: ev.qty, price: ev.price });
+        continue;
+      }
+      // A buy repays the oldest outstanding sale first. Anything left over is
+      // a genuinely new position and closes nothing.
+      let left = ev.qty;
+      while (left > EPS && sold.length) {
+        const s = sold[0];
+        const q = Math.min(left, s.qty);
+        out.push({
+          broker: /** @type {Broker} */ (broker),
+          symbol, name: meta.name, currency: meta.currency,
+          sellDate: s.date, sellPrice: s.price, qty: q,
+          backDate: ev.date, backPrice: ev.price,
+          gapDays: daysBetween(s.date, ev.date),
+        });
+        s.qty -= q;
+        left -= q;
+        if (s.qty <= EPS) sold.shift();
+      }
+    }
+
+    for (const s of sold) {
+      if (s.qty <= EPS) continue;
+      out.push({
+        broker: /** @type {Broker} */ (broker),
+        symbol, name: meta.name, currency: meta.currency,
+        sellDate: s.date, sellPrice: s.price, qty: s.qty,
+        backDate: null, backPrice: null, gapDays: null,
+      });
+    }
+  }
+
+  out.sort((a, b) => (a.sellDate < b.sellDate ? -1 : a.sellDate > b.sellDate ? 1 : 0));
+  return out;
+}
+
+/**
  * Every buy, with the average cost of the position it was added to.
  *
  * The question is whether a top-up went in below the price already paid

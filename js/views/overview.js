@@ -6,8 +6,8 @@
 
 import { el, card, money, signedMoney, pct, signedPct, isNum, DASH } from "../util.js";
 import { derive, changeOver } from "../model.js";
-import { donut, stackedHBar, hbar, divergingBars, compact, mount } from "../charts.js";
-import { hero, tile, tileRow, chartCard, footnote } from "./parts.js";
+import { donut, donutLegend, stackedHBar, hbar, divergingBars, compact, mount } from "../charts.js";
+import { hero, tile, tileRow, chartCard, chartName, footnote } from "./parts.js";
 
 /** @typedef {import('../types.js').Model} Model */
 
@@ -38,8 +38,7 @@ export function render(m, _arg) {
   // silently treating USD as TWD would understate it by ~97%.
   if (!d.rate && d.holdings.some((h) => h.currency === "USD")) {
     const warn = card("缺少匯率", {
-      note: "history 最後一列沒有 USD/TWD 匯率，美股部位無法換算台幣，"
-        + "以下所有台幣金額都少算了美股的部分。",
+      note: "history 最後一列沒有匯率，美股部位無法換算，以下台幣金額都少算了美股。",
       warn: true,
     });
     grid.append(warn);
@@ -78,10 +77,12 @@ export function render(m, _arg) {
   // -------------------------------------------------------- total return ---
   // The one honest performance number in this data, and the thing `summary`
   // never adds up: what the broker sheets say has been made, realized and not.
+  // Short labels: the bar chart caps its category column, and "（累計）" on two
+  // of three rows is redundant once the footnote says so.
   const parts = [
     { name: "未實現損益", value: t.unrealized },
-    { name: "已實現損益（累計）", value: t.realizedAll },
-    { name: "除權息收入（累計）", value: t.dividendsAll },
+    { name: "已實現損益", value: t.realizedAll },
+    { name: "除權息收入", value: t.dividendsAll },
   ];
   const returnCard = card("總報酬", { span: "half" });
   returnCard.append(el("div", { class: "big-line" }, [
@@ -97,21 +98,25 @@ export function render(m, _arg) {
     label: "金額",
   }), { class: "chart short" }));
   returnCard.append(footnote(
-    "已實現損益與除權息是自 2024 年起的累計值（AssetSync 的資料起點）。"
-    + "美元部位以最新匯率換算，非各筆交易當日匯率。",
+    "已實現與除權息是資料起點以來的累計值。美元部位用最新匯率換算，非成交當日匯率。",
   ));
   grid.append(returnCard);
 
   // --------------------------------------------------------- allocation ---
-  grid.append(chartCard("資產配置", donut({
-    items: d.allocation.map((a) => ({ label: a.label, value: a.value })),
+  const allocItems = d.allocation.map((a) => ({ label: a.label, value: a.value }));
+  const allocCard = chartCard("資產配置", donut({
+    items: allocItems,
     centerLabel: "總資產",
     centerValue: compact(t.total),
   }), {
     span: "half",
-    note: "手動項目單獨成一類：試算表的 summary 把它算進台股，"
-      + "但它目前裝的是美股複委託，併進去會讓台美佔比失真。",
-  }));
+    chartClass: "chart short",
+    note: "手動項目單獨成一類：它裝的是美股複委託，併進台股會讓台美佔比失真。",
+  });
+  // The legend lives in HTML under the ring, so three fields per row can wrap
+  // instead of being laid across the donut at phone widths.
+  allocCard.append(donutLegend(allocItems));
+  grid.append(allocCard);
 
   // ------------------------------------------------------------- brokers ---
   grid.append(chartCard("各券商資產", stackedHBar({
@@ -123,7 +128,7 @@ export function render(m, _arg) {
   }), {
     span: "half",
     chartClass: "chart short",
-    note: "現金含尚未交割的 T+2 淨額，與券商分頁上的「交割戶餘額」不同。",
+    note: "現金含尚未交割的 T+2 淨額，與券商分頁的「交割戶餘額」不同。",
   }));
 
   // -------------------------------------------------------- top holdings ---
@@ -131,14 +136,16 @@ export function render(m, _arg) {
   // twice would both clutter the ranking and understate its real weight.
   const top = d.bySymbol.filter((h) => h.valueTwd > 0).slice(0, 10);
   grid.append(chartCard("前 10 大持股", hbar({
-    names: top.map((h) => h.name || h.symbol),
+    // Tickers for US holdings: their legal names are long enough to set the
+    // left gutter for every row and squeeze the bars into what is left.
+    names: top.map(chartName),
     values: top.map((h) => h.valueTwd),
     label: "市值 (TWD)",
     sub: top.map((h) => `${h.symbol}　佔持股 ${pct(h.weight, 1)}　${signedPct(h.roi)}`
       + (h.brokers.length > 1 ? `　（${h.brokers.length} 家券商合計）` : "")),
   }), {
     span: "half", chartClass: "chart short",
-    note: "同一檔在多家券商的部位已合併計算。",
+    note: "同一檔在多家券商的部位已合併。美股顯示代號。",
   }));
 
   return grid;

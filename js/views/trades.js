@@ -90,7 +90,7 @@ export function render(m, arg) {
         span: "span-12",
         note: q && !rows.length
           ? undefined
-          : "富邦的手續費與交易稅是按標準費率估算的，永豐與 IBKR 是實際扣款金額。",
+          : "富邦的手續費與交易稅是估算值，永豐與 IBKR 是實際扣款金額。",
       },
     );
     tradesCard.append(table([
@@ -364,7 +364,8 @@ function symbolCards(m, d, symbol, rows) {
       },
       { key: "roi", label: "報酬率", fmt: (v) => signedPct(v), cls: (r) => tone(r.roi) },
     ], realized, { sortKey: "year" }));
-    rCard.append(footnote("試算表把已實現損益按「每檔每年」彙總，所以沒有逐筆配對。"));
+    rCard.append(footnote(
+      "試算表按「每檔每年」彙總，沒有逐筆配對——逐筆的在「行為分析」。"));
     cards.push(rCard);
   }
 
@@ -387,10 +388,9 @@ function candleCard({ name, symbol, buys, sells, avgCost, price, currency, settl
   const market = currency === "USD" ? "US" : "TW";
   const node = card(`${name} K線覆盤`, {
     span: "span-12",
-    note: "每個三角形是一筆成交，畫在當天 K 棒上「實際成交的那個價位」——"
+    note: "每個三角形是一筆成交，畫在當天 K 棒上實際成交的那個價位——"
       + "紅色向上是買進、綠色向下是賣出，大小是股數。"
-      + "重點不是「那天有沒有交易」，而是「在那天的振幅裡買在哪個位置」。"
-      + "可以用下方的縮放軸拉開區間。",
+      + "重點是「在那天的振幅裡買在哪個位置」。用下方的縮放軸拉開區間。",
   });
 
   const host = el("div", { class: "chart-load" },
@@ -437,13 +437,14 @@ function candleCard({ name, symbol, buys, sells, avgCost, price, currency, settl
         : priceBreaks.map((b) => ({ date: b.date, label: "價格不連續" }));
 
       host.remove();
-      // Wrapped so a phone scrolls the candles sideways instead of squeezing
-      // two panels and a zoom slider into 340px, where the bodies collapse into
-      // a smear and half the date labels disappear.
-      node.append(el("div", { class: "chart-scroll" }, mount(node, candles({
+      // No outer scroll box. This chart already owns a zoom slider, so a second
+      // way to move along the same axis meant a touch drag did one or the
+      // other depending on where it started - the range control is the one
+      // that belongs to the data, so it wins and the canvas fits the card.
+      node.append(mount(node, candles({
         rows, buys: withPlot(buys), sells: withPlot(sells),
         ma, avgCost, currency, marks,
-      }), { class: "chart candles" })));
+      }), { class: "chart candles" }));
       node.append(footnote(
         `股價來源：${source}${cached ? "（本機快取）" : ""}。`
         + (converted
@@ -532,9 +533,8 @@ function overallCard(rows, d) {
     tile({ label: "交易筆數", value: rows.length.toLocaleString("zh-TW"),
       sub: `${buys.length} 買 · ${sells.length} 賣` }),
     tile({ label: "涉及檔數", value: String(symbols) }),
-    tile({ label: "累計成交額", value: money(turnover) }),
-    tile({ label: "累計交易成本", value: money(cost),
-      deltaText: turnover ? pct(cost / turnover, 3) : undefined }),
+    tile({ label: "累計成交額", value: money(turnover),
+      sub: turnover ? `交易成本佔 ${pct(cost / turnover, 3)}` : undefined }),
     tile({ label: "期間", value: last, sub: `自 ${first}` }),
   ]));
 }

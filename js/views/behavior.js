@@ -25,31 +25,40 @@
 //
 // ## The three price-fed cards
 //
-// 買點品質, 賣飛 and vs 0050 need historical quotes, so they load from FinMind
-// and fill in when they land. They share ONE fetch pass over the symbols that
-// were actually traded, and everything goes through `daily()`, which caches per
-// symbol in localStorage and only tops up the missing tail - the free tier is
-// small enough that a re-fetch per visit would spend it.
+// 買點品質, 賣出之後呢 and vs 0050 need historical quotes, so they load from
+// FinMind and fill in when they land. They share ONE fetch pass over the
+// symbols that were actually traded, and everything goes through `daily()`,
+// which caches per symbol in localStorage and only tops up the missing tail -
+// the free tier is small enough that a re-fetch per visit would spend it.
 //
 // Each of them degrades on its own: a symbol whose prices cannot be fetched is
 // dropped from that card and counted in its footnote, never silently averaged
 // away.
+//
+// ## Every chart fits its card
+//
+// Nothing here scrolls sideways. Distributions are horizontal bars rather than
+// columns for exactly that reason - nine bucket labels along a bottom axis need
+// about 500px before they stop colliding, and the alternatives at phone width
+// are all worse than turning the chart on its side and letting it grow down.
 
 import {
   el, card, table, money, priceText, signedMoney, pct, signedPct, isNum, int,
   clear, groupBy, navigate, DASH,
 } from "../util.js";
 import { derive, twd } from "../model.js";
-import { match as fifoMatch, stats as fifoStats, histogram, addOns } from "../fifo.js";
+import {
+  match as fifoMatch, stats as fifoStats, histogram, addOns, sellFollowUps,
+} from "../fifo.js";
 import { splitFactor } from "../parse/adjustments.js";
 import {
-  columns, scatterXY, heatmap, divergingBars, barRows, disposeIn, mount, compact,
+  distribution, scatterXY, heatmap, divergingBars, barRows, disposeIn, mount, compact,
 } from "../charts.js";
 import {
   daily, alignTrades, findBreaks, corporateActions, shareFactor,
   MarketError, getToken, setToken,
 } from "../market.js";
-import { tile, tileRow, chartCard, footnote } from "./parts.js";
+import { tile, tileRow, chartCard, chartName, footnote } from "./parts.js";
 
 /** @typedef {import('../types.js').Model} Model */
 /** @typedef {import('../types.js').Trade} Trade */
@@ -90,8 +99,9 @@ const PCTL_LABELS = ["0–10%", "10–20%", "20–30%", "30–40%", "40–50%",
   "50–60%", "60–70%", "70–80%", "80–90%", "90–100%"];
 
 const WEEKDAYS = ["週一", "週二", "週三", "週四", "週五", "週六", "週日"];
-const MONTHS = ["1 月", "2 月", "3 月", "4 月", "5 月", "6 月",
-  "7 月", "8 月", "9 月", "10 月", "11 月", "12 月"];
+/** Bare numbers on the axis - twelve "1 月".."12 月" need ~320px on their own. */
+const MONTHS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+const MONTHS_FULL = MONTHS.map((n) => `${n} 月`);
 
 /**
  * @param {Model} m
@@ -106,8 +116,7 @@ export function render(m, _arg) {
   if (!pairs.length) {
     grid.append(card("行為分析", {
       span: "span-12",
-      note: "還沒有任何完成的買賣配對。這一頁的每個數字都來自「買進後又賣出」的成對紀錄，"
-        + "只有買進沒有賣出時無從分析。",
+      note: "還沒有任何完成的買賣配對。這一頁的數字都來自「買進後又賣出」的成對紀錄。",
     }));
     return grid;
   }
@@ -149,12 +158,9 @@ export function render(m, _arg) {
 
   grid.append(card("這些數字怎麼來的", {
     span: "span-12",
-    note: "試算表的已實現損益是「每檔每年」彙總的，沒有逐筆配對，所以本站用 trades 分頁"
-      + "重跑了一次 FIFO：每個券商、每檔股票各自排隊，先買的先賣掉，股數先用分割倍率"
-      + "還原成今日單位。成本用成交總額（不含買進手續費）、費用只算賣出的手續費與交易稅，"
-      + "這是比對試算表自己的年度數字後確定的做法——"
-      + "?selftest=1 會把每一組（券商 × 年度 × 個股）拿去跟試算表對，對不上就會變紅。"
-      + "配對的損益只看價差，不含期間領到的股息。",
+    note: "損益分頁只有「每檔每年」的彙總，所以這裡用交易紀錄重跑了一次 FIFO，"
+      + "每個券商、每檔各自排隊，先買的先賣掉，股數已還原成今日單位。"
+      + "配對損益只看價差，不含股息。",
   }));
 
   if (result.uncovered.length) {
@@ -164,10 +170,9 @@ export function render(m, _arg) {
     grid.append(card("有股數配不到買進成本", {
       span: "span-12",
       warn: true,
-      note: `${detail}：這些股數是「股數補登」進來的（員工持股、券商贈股之類），`
-        + "試算表沒有記每股成本，AssetSync 是從 cost_override.json 取得的，那個檔案不在試算表裡。"
-        + "本站不會替它們編一個成本（成本填 0 會把整筆賣出金額算成獲利），所以這些股數的配對"
-        + "被略過了，下面每一張圖都少了它們。這幾檔的勝率與損益會偏離試算表的數字。",
+      note: `${detail} 是員工持股、券商贈股之類補登進來的，來源資料沒有每股成本。`
+        + "本站不會替它們編一個（填 0 會把整筆賣出金額算成獲利），所以這些股數"
+        + "不在下面任何一張圖裡，這幾檔的勝率與損益會偏低。",
     }));
   }
 
@@ -175,39 +180,35 @@ export function render(m, _arg) {
   const rated = pairs.filter((p) => isNum(p.roi));
   const zeroCost = pairs.length - rated.length;
   const roiCounts = histogram(rated.map((p) => /** @type {number} */ (p.roi)), ROI_EDGES);
-  grid.append(chartCard("每筆配對的報酬率分布", columns({
+  grid.append(chartCard("每筆配對的報酬率分布", distribution({
     names: ROI_LABELS,
     values: roiCounts,
     label: "配對筆數",
     divider: ROI_DIVIDER,
-    dividerLabel: "損益兩平",
-    yName: "筆數",
-    sub: ROI_LABELS.map((l, i) => `${l}　${roiCounts[i]} 筆`),
+    dividerLabel: "兩平",
+    fmt: (v) => `${int(v)} 筆`,
+    sub: ROI_LABELS.map(() => "配對筆數"),
   }), {
     span: "half",
-    scroll: true,
-    note: "一根柱子是一個報酬率區間裡有幾筆配對。正負由「在虛線的哪一邊」表示，"
-      + "不是靠顏色——虛線左邊全是賠錢出場的。"
-      + "報酬率 = (賣出金額 − 成本 − 費稅) ÷ 成本，不是年化：一筆抱兩年賺 20% 和"
-      + "一筆抱兩週賺 20% 在這裡長得一樣，時間的部分請看右邊那張圖。"
-      + (zeroCost ? `　另有 ${zeroCost} 筆成本為 0 的配股，算不出報酬率，未計入。` : ""),
+    height: barRows(ROI_LABELS.length, { top: 24, min: 220 }),
+    note: "虛線以上全是賠錢出場的。報酬率不是年化——抱兩年賺 20% 和抱兩週賺 20% "
+      + "在這裡長得一樣，時間看下一張圖。"
+      + (zeroCost ? `另有 ${zeroCost} 筆零成本配股未計入。` : ""),
   }));
 
   // ------------------------------------------------------ holding-day bars ---
   const dayCounts = histogram(pairs.map((p) => p.days), DAY_EDGES);
-  grid.append(chartCard("持有天數分布", columns({
+  grid.append(chartCard("持有天數分布", distribution({
     names: DAY_LABELS,
     values: dayCounts,
     label: "配對筆數",
-    yName: "筆數",
-    sub: DAY_LABELS.map((l, i) => `${l}　${dayCounts[i]} 筆`),
+    fmt: (v) => `${int(v)} 筆`,
+    sub: DAY_LABELS.map(() => "配對筆數"),
   }), {
     span: "half",
-    scroll: true,
-    note: "從買進那批股票到把它賣掉，中間隔了多少「日曆天」（不是交易日）。"
-      + "這張圖回答的是「實際上到底做的是短線還是長線」——"
-      + "同一檔分批買進時，FIFO 會先賣掉最早買的那批，所以最左邊的短天期通常是"
-      + "加碼後又快速減碼的部位，不一定是當沖。",
+    height: barRows(DAY_LABELS.length, { top: 24, min: 220 }),
+    note: "從買進那批到把它賣掉隔了幾個日曆天，看實際上做的是短線還是長線。"
+      + "分批買進時先賣掉的是最早那批，所以最上面的短天期不一定是當沖。",
   }));
 
   // ------------------------------------------------------- days vs return ---
@@ -243,12 +244,9 @@ export function render(m, _arg) {
     }), {
       span: "span-12",
       chartClass: "chart tall",
-      scroll: true,
-      note: "每個點是一筆配對，大小是投入成本（換算 TWD）。"
-        + "水平線是損益兩平：線以下的點就是賠錢出場的那些。"
-        + "右上角是「抱得久也賺得多」，左下角是「很快就認賠」——"
-        + "如果賺錢的點都擠在左邊、賠錢的點都拖在右邊，那就是典型的「賺了就跑、賠了就凹」。"
-        + "顏色只分券商，不分賺賠。",
+      note: "每個點是一筆配對，大小是投入成本。水平線以下是賠錢出場的。"
+        + "如果賺錢的點擠在左邊、賠錢的點拖在右邊，那就是「賺了就跑、賠了就凹」。"
+        + "顏色只分券商。",
     }));
   }
 
@@ -262,27 +260,24 @@ export function render(m, _arg) {
     const sorted = prems.slice().sort((a, b) => a - b);
     const median = sorted[Math.floor(sorted.length / 2)];
 
-    const premCard = chartCard("加碼行為：越跌越買，還是追高？", columns({
+    const premCard = chartCard("加碼行為：越跌越買，還是追高？", distribution({
       names: PREMIUM_LABELS,
       values: premCounts,
       label: "加碼筆數",
       divider: PREMIUM_DIVIDER,
-      dividerLabel: "等於當時均價",
-      yName: "筆數",
-      sub: PREMIUM_LABELS.map((l, i) => `${l}　${premCounts[i]} 筆`),
+      dividerLabel: "均價",
+      fmt: (v) => `${int(v)} 筆`,
+      sub: PREMIUM_LABELS.map(() => "加碼筆數"),
     }), {
       span: "half",
-      scroll: true,
-      note: `每一筆「已經有部位之後再買進」的成交，價格比當時的持有均價高多少或低多少。`
-        + `虛線左邊是買在均價之下（攤平），右邊是買在均價之上（追高）。`
-        + `這裡的均價是券商式的移動平均成本（賣出時按均價扣成本、均價不變），`
-        + `跟上面 FIFO 的配對是兩套算法，因為「我的成本是多少」大家心裡想的是前者。`
+      height: barRows(PREMIUM_LABELS.length, { top: 24, min: 240 }),
+      note: "已經有部位之後再買進時，價格比當時的持有均價高多少或低多少。"
+        + "虛線以上是買在均價之下（攤平），以下是追高。"
         + `第一次建倉的 ${buys.length - withAvg.length} 筆沒有可比的均價，未計入。`,
     });
     premCard.append(footnote(
-      `${withAvg.length} 筆加碼裡有 ${below} 筆（${pct(below / withAvg.length, 0)}）買在均價之下，`
-      + `溢價中位數 ${signedPct(median, 1)}。`
-      + "偏左不代表比較好——攤平會在下跌時放大部位，只是說明習慣。",
+      `${withAvg.length} 筆加碼有 ${below} 筆（${pct(below / withAvg.length, 0)}）買在均價之下，`
+      + `溢價中位數 ${signedPct(median, 1)}。偏向攤平不代表比較好，只是說明習慣。`,
     ));
     grid.append(premCard);
   }
@@ -298,12 +293,9 @@ export function render(m, _arg) {
   // ----------------------------------------------------------- pairs table ---
   const pairsCard = card("FIFO 配對明細", {
     span: "span-12",
-    note: "本站自己配對出來的每一筆。股數與單價是用試算表 adjustments 分頁記錄的分割比例"
-      + "還原成今日單位的，所以跨過分割的那幾筆，單價會跟交易明細頁上的原始成交價不同"
-      + "（金額則完全相同）。試算表沒有記錄的分割不在還原範圍內——"
-      + "AssetSync 只記它自己 FIFO 用得到的那些，所以一檔在分割前就全部賣掉的股票，"
-      + "分割前後兩段的「股」會是不同單位（金額一樣不受影響）。"
-      + "上面需要用到股數的兩張圖會自己比對行情把這種標的排除，並在圖下標出是哪一檔。",
+    note: "股數與單價已還原成今日單位，所以跨過分割的那幾筆，單價會跟交易明細頁上的"
+      + "原始成交價不同（金額則完全相同）。需要用到股數的圖會自己比對行情，"
+      + "把單位確認不了的標的排除並在圖下標名。",
   });
   const pairRows = pairs.map((p) => ({
     ...p,
@@ -327,8 +319,7 @@ export function render(m, _arg) {
     { key: "roi", label: "報酬率", fmt: (v) => signedPct(v), cls: (r) => tone(r.roi) },
   ], pairRows, { sortKey: "sellDate", sortDir: "desc", scroll: true }));
   pairsCard.append(footnote(
-    "「損益 (TWD)」的美股部位是用最新匯率換算的，不是成交當天的匯率——"
-    + "試算表沒有記錄每筆成交當天的匯率，所以這一欄含有匯率變動，原幣別的單價則沒有。",
+    "「損益 (TWD)」的美股部位用最新匯率換算，所以含有匯率變動；原幣別的單價則沒有。",
   ));
   grid.append(pairsCard);
 
@@ -375,21 +366,20 @@ function tradingHeatmap(m) {
   const busiest = cells.reduce((a, c) => (c[2] > a[2] ? c : a), cells[0] ?? [0, 0, 0]);
   const node = chartCard("交易時間習慣", heatmap({
     xNames: MONTHS,
+    xFull: MONTHS_FULL,
     yNames: rows.map((wd) => WEEKDAYS[wd]),
     cells,
     label: "交易筆數",
     fmt: (v) => `${int(v)} 筆`,
   }), {
     span: "half",
-    scroll: true,
-    height: Math.max(230, rows.length * 34 + 96),
-    note: "橫軸是月份、直軸是星期，深淺是那個格子裡的成交筆數。"
-      + "用筆數不用金額：這張圖問的是習慣，一筆大單會把整個月的小單淹掉。"
-      + "顏色是單一色相的深淺（低到高），不是紅綠——這裡的量沒有好壞之分。",
+    height: Math.max(240, rows.length * 34 + 110),
+    note: "橫軸是月份、直軸是星期，深淺是成交筆數。"
+      + "用筆數不用金額——這張圖問的是習慣，一筆大單會把整個月的小單淹掉。",
   });
   node.append(footnote(
-    `最密集的是 ${MONTHS[busiest[0]]}的${WEEKDAYS[rows[busiest[1]]] ?? ""}，共 ${busiest[2]} 筆。`
-    + "同一天的多筆成交會分別計算（分批買進很常見），所以格子的數字比「有幾天在交易」多。",
+    `最密集的是 ${MONTHS_FULL[busiest[0]]}的${WEEKDAYS[rows[busiest[1]]] ?? ""}，`
+    + `共 ${busiest[2]} 筆。同一天的多筆成交分別計算，所以數字比「有幾天在交易」多。`,
   ));
   return node;
 }
@@ -420,8 +410,8 @@ function priceCards(m, d, result, host) {
 
   const loading = card("需要歷史股價的分析", {
     span: "span-12",
-    note: `買點品質、賣飛試算與 0050 對照都需要歷史股價。正在向 FinMind 取 `
-      + `${symbols.length} 檔的日線，第一次會慢一點，之後 6 小時內都走瀏覽器本機快取。`,
+    note: `下面三張圖需要歷史股價，正在取 ${symbols.length} 檔的日線。`
+      + "第一次會慢一點，之後幾小時內都走本機快取。",
   });
   const progress = el("div", { class: "loading", text: `已載入 0 / ${symbols.length} 檔…` });
   loading.append(progress);
@@ -509,7 +499,7 @@ function priceCards(m, d, result, host) {
       }
       const units = unitTrust(m, symbols, series);
       host.append(buyQualityCard(m, series, units, failed));
-      host.append(soldTooEarlyCard(m, d, result, series, units, failed));
+      host.append(soldTooEarlyCard(m, d, sellFollowUps(m), series, units, failed));
       host.append(benchmarkCard(m, d, series, units, benchActions, failed));
     })
     .catch((err) => {
@@ -640,10 +630,9 @@ function barAtOrBefore(rows, day) {
 function buyQualityCard(m, series, units, failed) {
   const node = card("買點品質：買在區間的哪個位置", {
     span: "span-12",
-    note: "把每一筆買進的成交價，放進「該筆前後 N 個交易日」的最高最低區間裡看它落在哪裡。"
-      + "0% 是買在整段區間的最低點，100% 是最高點，50% 是中間。"
-      + "區間刻意包含買進之後的走勢——買在當下的低點但之後繼續跌，那不是好買點，"
-      + "只往回看的區間會把它算成好買點。",
+    note: "每一筆買進的成交價，放進「該筆前後 N 個交易日」的最高最低區間裡看落在哪。"
+      + "0% 是買在最低點，100% 是最高點。"
+      + "區間刻意含買進之後的走勢——買在當下低點但之後繼續跌，那不是好買點。",
   });
 
   let n = 20;
@@ -726,15 +715,15 @@ function buyQualityCard(m, series, units, failed) {
       }),
     ]));
 
-    body.append(mountInto(node, columns({
+    body.append(mount(node, distribution({
       names: PCTL_LABELS,
       values: counts,
       label: "買進筆數",
       divider: 4,
-      dividerLabel: "區間中點",
-      yName: "筆數",
-      sub: PCTL_LABELS.map((l, i) => `${l}　${counts[i]} 筆`),
-    })));
+      dividerLabel: "中點",
+      fmt: (v) => `${int(v)} 筆`,
+      sub: PCTL_LABELS.map(() => "買進筆數"),
+    }), { class: "chart", height: barRows(PCTL_LABELS.length, { top: 24, min: 240 }) }));
 
     // Per symbol, so a single stock's habit is visible rather than averaged
     // into everyone else's.
@@ -758,11 +747,10 @@ function buyQualityCard(m, series, units, failed) {
     ], perSymbol, { sortKey: "mean", sortDir: "asc", scroll: true }));
 
     body.append(footnote(
-      `${scored.length} 筆買進納入評分。`
-      + (short ? `　${short} 筆因為前後湊不滿 ${n} 個交易日被排除（最早與最近的買進）。` : "")
-      + (noBar ? `　${noBar} 筆當天沒有對應的行情（可能是停牌或盤後零股）。` : "")
-      + (failed.length ? `　${failed.length} 檔抓不到股價：${failed.join("、")}。` : "")
-      + "　百分位只描述進場點在當時區間裡的位置，不代表報酬——買在最低點也可能整段區間都在跌。",
+      "百分位只說進場點在當時區間裡的位置，不代表報酬——買在最低點也可能整段都在跌。"
+      + (short ? `　${short} 筆前後湊不滿 ${n} 個交易日，已排除。` : "")
+      + (noBar ? `　${noBar} 筆當天沒有對應行情。` : "")
+      + (failed.length ? `　抓不到股價：${failed.join("、")}。` : ""),
     ));
   }
 
@@ -773,108 +761,142 @@ function buyQualityCard(m, series, units, failed) {
 // -------------------------------------------------------------- sold early ---
 
 /**
- * What the sold shares would be worth if they had never been sold.
+ * What each sale actually cost, once the buy-backs are taken into account.
  *
- * Straight from the FIFO pairs: the matched quantity is already in today's
- * units, so `qty x today's close` is directly comparable with what the sale
- * actually brought in. That is the entire reason the units are restated before
- * matching - the same arithmetic on raw quantities would be off by the split
- * ratio for every position that crossed one.
+ * The naive version of this card - value the sold shares at today's price and
+ * compare against what they fetched - is wrong whenever a position was
+ * re-entered. Sell high, watch it fall, buy the same shares back cheaper, and
+ * that arithmetic still calls the sale a mistake because the price is higher
+ * today. It is not: the shares came back and the difference stayed in the
+ * account. So `sellFollowUps` matches every sale against later buys of the same
+ * (broker, symbol), and each parcel of shares is measured against the price it
+ * should be measured against:
  *
- * The honest caveat, which the card prints: this assumes the money went nowhere
- * afterwards. In reality a sale usually funded the next purchase, so a large
- * "missed" figure is an argument about that particular decision, not about the
- * account.
+ *   - bought back  -> the buy-back price. The comparison ends the day the
+ *                     position was restored; what happened afterwards belongs
+ *                     to the new position, not to the sale.
+ *   - never bought back -> today's close. Only here is "if I had just held"
+ *                     the right counterfactual.
+ *
+ * One formula covers both: `(reference - sellPrice) x qty`. Positive means
+ * holding would have been better; negative means the sale was the better call.
  *
  * @param {Model} m
  * @param {import('../model.js').Derived} d
- * @param {import('../fifo.js').FifoResult} result
+ * @param {import('../fifo.js').SoldShares[]} sold
  * @param {Map<string, import('../market.js').Bar[]>} series
  * @param {Map<string, boolean>} units
  * @param {string[]} failed
  */
-function soldTooEarlyCard(m, d, result, series, units, failed) {
-  /** @type {Map<string, {symbol: string, name: string, currency: any, qty: number,
-   *          proceeds: number, nowValue: number, missed: number, missedTwd: number}>} */
+function soldTooEarlyCard(m, d, sold, series, units, failed) {
+  /**
+   * @type {Map<string, {symbol: string, name: string, currency: any,
+   *   backQty: number, backCost: number, openQty: number, openCost: number,
+   *   costTwd: number, parcels: number}>}
+   */
   const bySymbol = new Map();
   const skipped = new Set();
 
-  for (const p of result.pairs) {
-    const rows = series.get(p.symbol);
-    if (!rows || units.get(p.symbol) === false) { skipped.add(p.symbol); continue; }
-    const last = rows[rows.length - 1];
-    if (!last || !last[4]) { skipped.add(p.symbol); continue; }
-    const nowValue = p.qty * last[4];
-    const missed = nowValue - p.proceeds;
-    const cur = bySymbol.get(p.symbol) ?? {
-      symbol: p.symbol, name: p.name || p.symbol, currency: p.currency,
-      qty: 0, proceeds: 0, nowValue: 0, missed: 0, missedTwd: 0,
+  for (const s of sold) {
+    const rows = series.get(s.symbol);
+    // Only the never-repurchased parcels need a quote, but a symbol whose share
+    // units cannot be confirmed is unsafe for both halves.
+    if (units.get(s.symbol) === false) { skipped.add(s.symbol); continue; }
+    let reference = s.backPrice;
+    if (reference === null) {
+      const last = rows?.[rows.length - 1];
+      if (!last || !last[4]) { skipped.add(s.symbol); continue; }
+      reference = last[4];
+    }
+    const cost = (reference - s.sellPrice) * s.qty;
+    const cur = bySymbol.get(s.symbol) ?? {
+      symbol: s.symbol, name: s.name || s.symbol, currency: s.currency,
+      backQty: 0, backCost: 0, openQty: 0, openCost: 0, costTwd: 0, parcels: 0,
     };
-    cur.qty += p.qty;
-    cur.proceeds += p.proceeds;
-    cur.nowValue += nowValue;
-    cur.missed += missed;
-    cur.missedTwd += twd(missed, p.currency, d.rate) ?? 0;
-    bySymbol.set(p.symbol, cur);
+    if (s.backPrice === null) { cur.openQty += s.qty; cur.openCost += cost; }
+    else { cur.backQty += s.qty; cur.backCost += cost; }
+    cur.costTwd += twd(cost, s.currency, d.rate) ?? 0;
+    cur.parcels += 1;
+    bySymbol.set(s.symbol, cur);
   }
 
-  const rows = [...bySymbol.values()].sort((a, b) => b.missedTwd - a.missedTwd);
-  const node = card("賣飛試算：如果那些股票沒賣，今天值多少", {
+  const rows = [...bySymbol.values()].sort((a, b) => b.costTwd - a.costTwd);
+  const node = card("賣出之後呢：真的賣飛了嗎", {
     span: "span-12",
-    note: "拿每一筆 FIFO 配對賣掉的股數 × 今天的收盤價，減掉當時實際賣得的金額。"
-      + "正的是「賣早了」（現在比較貴），負的是「賣對了」（現在比較便宜）。"
-      + "股數已經還原成今日單位，所以跨過分割的部位也算得出來。",
-    warn: false,
+    note: "賣掉之後又買回來的，只算到買回那天為止——低賣高買才是損失，"
+      + "高賣低買反而是賺到。沒有買回的才用今天的股價算，那才是真正的賣飛。"
+      + "正的代表當初不賣比較好，負的代表賣掉是對的。",
   });
 
   if (!rows.length) {
-    node.append(el("div", { class: "empty", text: "沒有可以試算的配對（抓不到現價）。" }));
+    node.append(el("div", { class: "empty", text: "沒有可以試算的賣出（抓不到現價）。" }));
     return node;
   }
 
-  const totalMissed = rows.reduce((a, r) => a + r.missedTwd, 0);
-  const early = rows.filter((r) => r.missedTwd > 0);
-  const right = rows.filter((r) => r.missedTwd < 0);
+  const total = rows.reduce((a, r) => a + r.costTwd, 0);
+  const backTwd = rows.reduce((a, r) => a + (twd(r.backCost, r.currency, d.rate) ?? 0), 0);
+  const openTwd = rows.reduce((a, r) => a + (twd(r.openCost, r.currency, d.rate) ?? 0), 0);
+  const backParcels = sold.filter((s) => s.backDate).length;
+  const gaps = sold.filter((s) => isNum(s.gapDays)).map((s) => /** @type {number} */ (s.gapDays))
+    .sort((a, b) => a - b);
+
   node.append(tileRow([
-    // Deliberately uncoloured. The sign here means "the price went up after the
-    // sale", not "this was a gain" - wearing the gain colour would say the
-    // account made this money, and it did not.
+    // Uncoloured: the sign means "holding would have been better", not "the
+    // account made or lost this" - it never appeared in any statement.
     tile({
-      label: "合計機會成本", value: signedMoney(totalMissed),
-      sub: totalMissed > 0 ? "抱著會比較好" : "賣掉是對的",
+      label: "賣出決策的機會成本", value: signedMoney(total),
+      sub: total > 0 ? "正的代表當初不賣比較好" : "整體而言賣得對",
     }),
     tile({
-      label: "賣早了", value: `${int(early.length)} 檔`,
-      sub: `合計 ${compact(early.reduce((a, r) => a + r.missedTwd, 0))}`,
+      label: "沒買回的", value: signedMoney(openTwd),
+      sub: "用今天的股價算，真正的賣飛",
     }),
     tile({
-      label: "賣對了", value: `${int(right.length)} 檔`,
-      sub: `合計 ${compact(right.reduce((a, r) => a + r.missedTwd, 0))}`,
+      label: "賣掉又買回的", value: signedMoney(backTwd),
+      sub: backParcels
+        ? `正的是買回時更貴　${int(backParcels)} 段，間隔中位數 `
+          + `${days(gaps[Math.floor(gaps.length / 2)])}`
+        : "沒有買回紀錄",
     }),
-    // Pairs, not a share total: adding TW lots to IBKR fractional shares would
-    // be a sum over different instruments, which is not a quantity of anything.
     tile({
       label: "涉及檔數", value: `${int(rows.length)} 檔`,
-      sub: `${int(result.pairs.filter((p) => bySymbol.has(p.symbol)).length)} 筆配對`,
+      sub: `${int(sold.filter((s) => bySymbol.has(s.symbol)).length)} 段賣出`,
     }),
   ]));
 
-  node.append(mountInto(node, divergingBars({
-    names: rows.map((r) => r.name || r.symbol),
-    values: rows.map((r) => r.missedTwd),
-    label: "抱到今天 − 當時賣出 (TWD)",
-    sub: rows.map((r) => `${r.symbol}　賣出 ${shareText(r.qty)} 股`
-      + `　當時 ${money(r.proceeds, r.currency)} → 今天 ${money(r.nowValue, r.currency)}`),
-  }), barRows(rows.length, { min: 260 })));
+  node.append(mount(node, divergingBars({
+    names: rows.map(chartName),
+    values: rows.map((r) => r.costTwd),
+    label: "不賣的話會多多少 (TWD)",
+    sub: rows.map((r) => `${r.symbol}　`
+      + (r.backQty ? `買回 ${shareText(r.backQty)} 股 ${signedMoney(r.backCost, r.currency)}　` : "")
+      + (r.openQty ? `未買回 ${shareText(r.openQty)} 股 ${signedMoney(r.openCost, r.currency)}` : "")),
+  }), { class: "chart", height: barRows(rows.length, { min: 260 }) }));
+
+  node.append(table([
+    { key: "symbol", label: "代號", align: "left" },
+    { key: "name", label: "名稱", align: "left", fmt: (v) => v || DASH },
+    { key: "backQty", label: "已買回股數", fmt: (v) => (v ? shareText(v) : DASH) },
+    {
+      key: "backCost", label: "買回的代價",
+      fmt: (v, r) => (r.backQty ? signedMoney(v, r.currency) : DASH),
+      title: "買回價 − 賣出價：正的代表買回時比賣出時貴，也就是當初不賣比較好",
+    },
+    { key: "openQty", label: "未買回股數", fmt: (v) => (v ? shareText(v) : DASH) },
+    {
+      key: "openCost", label: "未買回的機會成本",
+      fmt: (v, r) => (r.openQty ? signedMoney(v, r.currency) : DASH),
+      title: "今天的股價 − 賣出價：正的代表賣飛了",
+    },
+    // No gain/loss colour anywhere in this table: every column is a
+    // counterfactual, and none of these amounts ever appeared in an account.
+    { key: "costTwd", label: "合計 (TWD)", fmt: (v) => signedMoney(v) },
+  ], rows, { sortKey: "costTwd", scroll: true }));
 
   node.append(footnote(
-    "這是「賣掉之後那筆錢就消失」的假設。實際上賣股票的錢通常拿去買了別的東西，"
-    + "所以某一檔的機會成本很大，說的是那個賣出決定，不是整個帳戶少賺了這麼多。"
-    + "兩邊都只算價差，不含賣出後本來會領到的股息，也不含買回去的成本。"
-    // Named, not counted: "1 檔沒有納入" leaves the reader unable to tell
-    // whether the one that is missing is the one they came to look at.
+    "只算價差，不含期間的股息，也不含賣出後那筆錢拿去買別的東西所賺到的。"
     + (skipped.size ? `　沒有納入：${[...skipped].join("、")}（抓不到現價，`
-      + "或是行情顯示有分割但試算表沒有對應的分割紀錄，股數單位無法確認）。" : "")
+      + "或行情顯示有分割但沒有對應的分割紀錄，股數單位無法確認）。" : "")
     + (failed.length ? `　抓不到股價：${failed.join("、")}。` : ""),
   ));
   return node;
@@ -909,12 +931,10 @@ function soldTooEarlyCard(m, d, result, series, units, failed) {
 function benchmarkCard(m, d, series, units, benchActions, failed) {
   const node = card(`如果當初買 ${BENCH} 放著：個股 vs 大盤`, {
     span: "span-12",
-    note: `每一筆台股買進，都拿同一天、同一筆金額改買 ${BENCH} 來對照，兩邊都假設抱到今天。`
-      + "正的代表這檔比大盤好，負的代表同樣的錢放在 0050 會更多。"
-      + "刻意不管後來有沒有賣掉——這張圖問的是「選股有沒有加分」，不是帳戶的實際報酬。"
-      + "注意：兩邊都只算股價、完全不含配息，所以債券 ETF 與高股息 ETF 在這張圖上一定很難看——"
-      + "它們的報酬本來就大部分來自配息，價格幾乎不漲，拿價差去跟股票指數比並不公平。"
-      + "把它們的長條讀成「這筆錢如果放在股票市場會多多少」，而不是「選錯標的」。",
+    note: `每一筆台股買進，拿同一天、同一筆金額改買 ${BENCH} 來對照，兩邊都假設抱到今天。`
+      + "刻意不管後來有沒有賣掉——這張圖問的是「選股有沒有加分」。"
+      + "兩邊都只算股價不含配息，所以債券與高股息 ETF 在這裡一定很難看，"
+      + "那是它們的報酬本來就來自配息，不是選錯標的。",
   });
 
   const benchRows = series.get(BENCH);
@@ -1005,13 +1025,13 @@ function benchmarkCard(m, d, series, units, benchActions, failed) {
     }),
   ]));
 
-  node.append(mountInto(node, divergingBars({
-    names: rows.map((r) => r.name || r.symbol),
+  node.append(mount(node, divergingBars({
+    names: rows.map(chartName),
     values: rows.map((r) => r.excess),
     label: `個股現值 − ${BENCH} 對照現值 (TWD)`,
     sub: rows.map((r) => `${r.symbol}　投入 ${money(r.invested)}`
       + `　現值 ${money(r.nowValue)} vs ${BENCH} ${money(r.benchValue)}`),
-  }), barRows(rows.length, { min: 260 })));
+  }), { class: "chart", height: barRows(rows.length, { min: 260 }) }));
 
   const maxInvested = Math.max(...rows.map((r) => r.invested), 1);
   node.append(table([
@@ -1033,35 +1053,11 @@ function benchmarkCard(m, d, series, units, benchActions, failed) {
   ], rows, { sortKey: "excess", scroll: true }));
 
   node.append(footnote(
-    `${BENCH} 的股數已用${sheetHasBenchSplit ? "試算表的分割紀錄" : "官方分割參考價"}還原成今日單位。`
-    + "兩邊都只算價格，不含配息——0050 的配息與個股的配息都沒有計入，所以兩邊都被低估，"
-    + "而配息率較高的那一邊被低估得多一點。"
-    + "美股買進沒有納入：那些現金是美元，換算成台幣對照會把匯率變動混進「選股」裡。"
+    "美股買進沒有納入：那些現金是美元，換算成台幣對照會把匯率變動混進「選股」裡。"
     + (skipped.size ? `　沒有納入：${[...skipped].join("、")}（抓不到股價，`
-      + "或是行情顯示有分割但試算表沒有對應的分割紀錄，股數單位無法確認）。" : "")
+      + "或股數單位無法確認）。" : "")
     + (noRange ? `　${noRange} 筆買進的日期落在 ${BENCH} 的行情範圍之外。` : "")
     + (failed.length ? `　抓不到股價：${failed.join("、")}。` : ""),
   ));
   return node;
-}
-
-// --------------------------------------------------------------- plumbing ---
-
-/**
- * Mount a chart into a card and wrap it so a phone can scroll it sideways.
- *
- * A chart squeezed into a 340px viewport is not a smaller chart, it is an
- * unreadable one - ECharts starts dropping category labels and the marks
- * collapse into each other. The wrapper gives the canvas a floor width on
- * narrow screens and lets the card scroll it, which is the same rule the tables
- * already follow: wide content scrolls inside its own box, never by moving the
- * page.
- *
- * @param {import('../util.js').Card} host
- * @param {any} option
- * @param {number} [height]
- */
-function mountInto(host, option, height) {
-  return el("div", { class: "chart-scroll" },
-    mount(host, option, height ? { class: "chart", height } : { class: "chart" }));
 }

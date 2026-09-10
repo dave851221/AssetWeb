@@ -14,7 +14,7 @@ import {
 } from "../util.js";
 import { derive } from "../model.js";
 import { yearColumns, timeLine, divergingBars, barRows, mount } from "../charts.js";
-import { tile, tileRow, chartCard, barCell, footnote } from "./parts.js";
+import { tile, tileRow, chartCard, chartName, barCell, footnote } from "./parts.js";
 
 /** @typedef {import('../types.js').Model} Model */
 
@@ -26,9 +26,6 @@ export function render(m, _arg) {
   const grid = el("div", { class: "grid" });
   const t = d.totals;
   const years = d.byYear;
-
-  const costAll = years.reduce((a, y) => a + y.fee + y.tax, 0);
-  const turnoverAll = years.reduce((a, y) => a + y.turnover, 0);
 
   // ------------------------------------------------------------- the stats ---
   grid.append(el("section", { class: "card span-12 flush" }, tileRow([
@@ -48,18 +45,12 @@ export function render(m, _arg) {
     tile({
       label: `${t.year} 年除權息`, value: money(t.dividendsYtd),
     }),
-    tile({
-      label: "交易成本（累計）", value: money(costAll),
-      deltaText: turnoverAll ? `佔成交額 ${pct(costAll / turnoverAll, 3)}` : undefined,
-      sub: "手續費 + 交易稅",
-    }),
   ])));
 
   if (t.pending) {
     grid.append(card("有成本待補的賣出", {
       span: "span-12",
-      note: `${t.pending} 筆賣出的 FIFO 成本尚未解出，AssetSync 在該欄寫了`
-        + "「請填入 cost_override.json」。這些筆的損益不計入上面的累計值，"
+      note: `${t.pending} 筆賣出的成本尚未解出，損益不計入上面的累計值，`
         + "所以實際數字會比顯示的更高或更低。",
       warn: true,
     }));
@@ -75,8 +66,7 @@ export function render(m, _arg) {
       ],
     }), {
       span: "half",
-      note: "堆疊起來就是那一年的實現總收益。未實現損益不在這裡——"
-        + "它沒有年度歸屬，只有現在這一刻的值。",
+      note: "堆疊起來就是那一年的實現總收益。未實現損益沒有年度歸屬，不在這裡。",
     }));
 
     // Cumulative, at the only grain the data supports.
@@ -88,7 +78,7 @@ export function render(m, _arg) {
       label: "累積已實現 + 除權息",
     }), {
       span: "half",
-      note: "以年為單位：試算表的已實現損益是「每檔每年」彙總的，沒有逐筆日期。",
+      note: "以年為單位：已實現損益是「每檔每年」彙總的，沒有逐筆日期。",
     }));
   }
 
@@ -97,6 +87,7 @@ export function render(m, _arg) {
     .map(([symbol, rows]) => ({
       symbol,
       name: rows.find((r) => r.name)?.name || symbol,
+      currency: rows[0].currency,
       pnl: rows.reduce((a, r) => a + (r.pnl === null ? 0 : convert(r, d.rate)), 0),
       qty: rows.reduce((a, r) => a + (r.qty ?? 0), 0),
       years: [...new Set(rows.map((r) => r.year))].sort(),
@@ -107,7 +98,7 @@ export function render(m, _arg) {
 
   if (bySymbol.length) {
     grid.append(chartCard("個股歷年已實現損益", divergingBars({
-      names: bySymbol.map((r) => r.name),
+      names: bySymbol.map(chartName),
       values: bySymbol.map((r) => r.pnl),
       label: "已實現損益 (TWD)",
       sub: bySymbol.map((r) => `${r.symbol}　${r.years.join("、")} 年　賣出 ${r.qty} 股`),
@@ -128,8 +119,8 @@ export function render(m, _arg) {
       fmt: (v) => money(v),
     }), {
       span: "half",
-      note: "富邦的手續費與交易稅是按標準費率估算的（0.1425%、NT$20 下限），"
-        + "永豐與 IBKR 是實際扣款金額——試算表沒有標記哪個是哪個，這裡也無法分辨。",
+      note: "富邦是按標準費率估算，永豐與 IBKR 是實際扣款金額——"
+        + "試算表沒有標記哪個是哪個。",
     }));
 
     const costCard = card("各年度明細", { span: "half" });
@@ -166,8 +157,7 @@ export function render(m, _arg) {
       },
     ], divs, { sortKey: "cash", scroll: true }));
     divCard.append(footnote(
-      "「配息 ÷ 成本」是累計金額除以目前成本，不是年化殖利率："
-      + "分子橫跨數年，分母只是現在的部位，已經賣掉的部分不在分母裡。",
+      "「配息 ÷ 成本」不是年化殖利率：分子橫跨數年，分母只是現在的部位。",
     ));
     grid.append(divCard);
   }

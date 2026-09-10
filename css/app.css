@@ -431,12 +431,21 @@ table.data td.down { color: var(--down); }
   height: 560px; display: flex; align-items: center; justify-content: center;
 }
 
-/* Wide charts scroll inside their own box on a phone, exactly as wide tables
-   do. Below the breakpoint the canvas gets a floor width instead of being
-   squeezed: ECharts responds to a 340px container by hiding half the category
-   labels and letting the marks overlap, which is worse than a swipe. At desktop
-   widths this wrapper is inert - no floor, no scrollbar. */
-.chart-scroll { min-width: 0; }
+/* The donut's legend, as text under the ring rather than an ECharts block
+   beside it. Three fields per row - name, amount, share - align in their own
+   columns and wrap at any width; ECharts sizes its legend itself and laid the
+   same content straight across the ring on a phone. */
+.donut-legend { display: grid; gap: 2px 14px; margin: 6px 0 0; font-size: 12.5px; }
+.donut-key {
+  display: grid; align-items: baseline; gap: 8px;
+  grid-template-columns: 10px minmax(0, 1fr) auto auto;
+}
+.donut-key .k-name {
+  color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.donut-key .k-value { color: var(--text-1); font-weight: 600; font-variant-numeric: tabular-nums; }
+.donut-key .k-share { color: var(--text-muted); font-variant-numeric: tabular-nums; min-width: 42px;
+  text-align: right; }
 
 /* A container that adds no box of its own - its children join the parent grid
    directly, so an async section can replace a group of cards in one call while
@@ -519,17 +528,14 @@ kbd, code { font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 12
   .banner { padding: 8px 12px; font-size: 12.5px; }
   .gate { padding: 8vh 16px; }
 
-  /* The floor widths. A chart wrapped in .chart-scroll keeps a legible size and
-     the box scrolls; the page itself still never moves sideways. */
-  .chart-scroll {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    /* Room for the scrollbar, so it does not sit on top of the axis labels. */
-    padding-bottom: 2px;
-  }
-  .chart-scroll > .chart { min-width: 520px; }
-  .chart-scroll > .chart.candles { min-width: 640px; }
-  .chart-scroll > .chart.tall { min-width: 560px; }
+  /* An odd number of tiles leaves a hole in a two-column grid, and a hole reads
+     as a tile that failed to render. The last one takes the full width instead:
+     the row then ends on a deliberate-looking line rather than a gap. */
+  .tile-row > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+  /* A filter's caption stays on one line - 「查詢個股」 was breaking after the
+     second character and taking a whole line to do it. */
+  .filter-row label > span { white-space: nowrap; }
 }
 
 @media (max-width: 420px) {

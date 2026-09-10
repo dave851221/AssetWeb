@@ -177,16 +177,25 @@ function base(t) {
 const axisLine = (t) => ({ lineStyle: { color: t.axis, width: 1 } });
 const splitLine = (t) => ({ lineStyle: { color: t.grid, width: 1, type: "solid" } });
 
-/** A value axis. Hairline grid, muted ticks, compacted numbers. */
-function valueAxis(t, { name = "", fmt = compact } = {}) {
+/**
+ * A value axis. Hairline grid, muted ticks, compacted numbers.
+ *
+ * `hideOverlap` is the phone fix: a value axis does not thin its own labels the
+ * way a category axis does, so at 340px "0 / 30.0萬 / 60.0萬" printed straight
+ * over itself. Dropping a tick label here is safe - the grid line stays and the
+ * surviving neighbours still give the scale - which is the opposite of a
+ * category axis, where a dropped label leaves a bar nobody can name.
+ */
+function valueAxis(t, { name = "", fmt = compact, splitNumber = 0 } = {}) {
   return {
     type: "value",
     name,
     nameTextStyle: { color: t.muted, fontSize: 11, align: "left" },
     axisLine: { show: false },
     axisTick: { show: false },
-    axisLabel: { color: t.muted, fontSize: 11, formatter: fmt },
+    axisLabel: { color: t.muted, fontSize: 11, formatter: fmt, hideOverlap: true },
     splitLine: splitLine(t),
+    ...(splitNumber ? { splitNumber } : {}),
   };
 }
 
@@ -275,7 +284,9 @@ export function timeLine({
           + `<div style="color:${t.ink2};font-size:11.5px">${label}</div>`;
       },
     },
-    grid: { left: 8, right: endLabel ? 76 : 16, top: 16, bottom: 8, containLabel: true },
+    // The end label needs a gutter, but 76px of a 340px card is a quarter of
+    // the plot spent on one number. compact() output tops out around 48px.
+    grid: { left: 8, right: endLabel ? 56 : 16, top: 16, bottom: 8, containLabel: true },
     xAxis: catAxis(t, days, { fmt: (d) => String(d).slice(5) }),
     yAxis: fitted
       // Only the floor is pinned. Pinning the ceiling too made ECharts print
@@ -430,8 +441,10 @@ export function hbar({ names, values, label, fmt = (v) => money(v), sub }) {
         + `<div style="font-weight:650;font-size:14px">${fmt(p.value)}</div>`
         + (sub ? `<div style="color:${t.ink2};font-size:11.5px">${sub[p.dataIndex] ?? ""}</div>` : ""),
     },
-    grid: { left: 8, right: 76, top: 8, bottom: 8, containLabel: true },
-    xAxis: { ...valueAxis(t), splitLine: splitLine(t) },
+    grid: { left: 8, right: 52, top: 8, bottom: 8, containLabel: true },
+    // Three ticks, not five: this axis is a scale for the bars beside it, not
+    // a table of values, and five labels collide below about 420px.
+    xAxis: { ...valueAxis(t, { splitNumber: 3 }), splitLine: splitLine(t) },
     yAxis: {
       ...catAxis(t, names),
       inverse: true,
@@ -487,8 +500,8 @@ export function stackedHBar({ names, series, fmt = (v) => money(v) }) {
       },
     },
     legend: legend(t),
-    grid: { left: 8, right: 64, top: 34, bottom: 8, containLabel: true },
-    xAxis: valueAxis(t),
+    grid: { left: 8, right: 52, top: 34, bottom: 8, containLabel: true },
+    xAxis: valueAxis(t, { splitNumber: 3 }),
     yAxis: {
       ...catAxis(t, names),
       inverse: true,
@@ -533,13 +546,14 @@ export function divergingBars({ names, values, label, sub, fmt = (v) => signedMo
         + `<div style="font-weight:650;font-size:14px">${fmt(p.value)}</div>`
         + (sub ? `<div style="color:${t.ink2};font-size:11.5px">${sub[p.dataIndex] ?? ""}</div>` : ""),
     },
-    // A gutter on both sides beyond what containLabel reserves. The value label
-    // sits OUTSIDE the bar end, and containLabel only accounts for the axis's
-    // own labels - so the longest bar in either direction ran its label into
-    // the category names on the left.
-    grid: { left: 52, right: 52, top: 8, bottom: 8, containLabel: true },
+    // `right` is a real gutter - containLabel only reserves what the x-axis
+    // labels need there. `left` is NOT: with containLabel the category names
+    // are inside that box, so raising it just pads the card. The gutter the
+    // longest negative bar needs, for a value label drawn outside its left
+    // end, has to come from the category axis's own label margin below.
+    grid: { left: 8, right: 52, top: 8, bottom: 8, containLabel: true },
     xAxis: {
-      ...valueAxis(t),
+      ...valueAxis(t, { splitNumber: 3 }),
       // The zero line is the reference the whole chart is read against, so it
       // is darker than the grid.
       splitLine: splitLine(t),
@@ -548,7 +562,15 @@ export function divergingBars({ names, values, label, sub, fmt = (v) => signedMo
       ...catAxis(t, names),
       inverse: true,
       axisLine: { show: true, lineStyle: { color: t.axis } },
-      axisLabel: { color: t.ink2, fontSize: 12, interval: 0 },
+      axisLabel: {
+        color: t.ink2, fontSize: 12, interval: 0,
+        // The gap that keeps a long loss bar's label off the names.
+        margin: 46,
+        // And a ceiling on the names themselves: one 「元大AAA至A公司債」 would
+        // otherwise set the left column's width for every row and leave a
+        // phone with no plot. The tooltip carries the full name and the ticker.
+        width: 104, overflow: "truncate",
+      },
     },
     series: [{
       type: "bar",
@@ -593,20 +615,15 @@ export function donut({ items, centerLabel, centerValue }) {
         + `<div style="font-weight:650;font-size:14px">${money(p.value)}</div>`
         + `<div style="color:${t.ink2};font-size:11.5px">${pct(p.value / total, 1)}</div>`,
     },
-    legend: {
-      ...legend(t),
-      orient: "vertical", left: 0, top: "center",
-      itemGap: 12,
-      formatter: (name) => {
-        const it = items.find((i) => i.label === name);
-        return it ? `${name}　${compact(it.value)}　${pct(it.value / total, 1)}` : name;
-      },
-    },
+    // No ECharts legend. Its entries carry a name, an amount and a share, which
+    // is wide enough that at phone widths ECharts laid them straight across the
+    // ring. `donutLegend()` puts the same three things in HTML under the chart,
+    // where they wrap and align like the text they are.
     // The centre of a donut is free space that would otherwise be wasted; the
     // total belongs there, so the ring and the number are read together.
     graphic: centerValue ? [{
       type: "group",
-      left: "62%", top: "middle",
+      left: "center", top: "middle",
       children: [
         { type: "text", left: "center", top: -18,
           style: { text: centerLabel || "", fill: t.muted, font: `11.5px ${FONT}`, textAlign: "center" } },
@@ -617,14 +634,14 @@ export function donut({ items, centerLabel, centerValue }) {
     series: [{
       type: "pie",
       radius: ["52%", "76%"],
-      center: ["62%", "50%"],
+      center: ["50%", "50%"],
       avoidLabelOverlap: true,
       // A 2px surface gap does the separating; no stroke around the mark.
       itemStyle: { borderColor: t.surface, borderWidth: 2 },
-      // No slice labels. With four slices the legend beside the ring already
-      // carries name, value and share, so labels only restated it - and the
-      // leader lines for the two small slices collided with each other at the
-      // top of the donut. The ring keeps the shape; the legend keeps the words.
+      // No slice labels. The legend below already carries name, value and
+      // share, so labels only restated it - and the leader lines for the two
+      // small slices collided with each other at the top of the donut. The
+      // ring keeps the shape; the legend keeps the words.
       label: { show: false },
       labelLine: { show: false },
       data: items.map((i, n) => ({
@@ -796,50 +813,46 @@ export function bubble({ groups }) {
 }
 
 /**
- * Categorical columns - one series, one hue. The histogram form.
+ * A distribution: one bar per bucket, one hue, bucket names read down the side.
  *
- * A distribution is a count per bucket, and a count has no sign, no ranking and
- * no second dimension - so it gets one colour and nothing else. Where the
- * buckets straddle zero (a return, a premium over the average cost), `divider`
- * puts a rule between the last negative bucket and the first positive one: the
- * sign is then carried by POSITION along the axis, which is the requirement
- * red-vs-green cannot meet on its own. Bucket labels print their own signs too.
+ * A count per bucket has no sign, no ranking and no second dimension, so it
+ * gets one colour and nothing else.
  *
- * Vertical rather than horizontal because the buckets are ordered - a
- * distribution read left to right is the convention every reader already has.
+ * **Horizontal, not vertical columns.** Nine or ten bucket labels along a
+ * bottom axis need about 500px before they stop colliding, and the answers to
+ * that on a phone are all bad: drop labels (a bar nobody can name), rotate them
+ * (unreadable at 90°), or scroll the chart sideways (fights the page's own
+ * gesture). Down the side each label gets a full line at any width, and the
+ * chart grows downwards where there is always room.
  *
- * `rotate` defaults to slanting the labels once there are enough buckets that
- * horizontal ones would collide. It is never allowed to *drop* a label: a bar
- * whose bucket is unnamed cannot be read at all, which is why `interval: 0` is
- * forced here rather than left to ECharts' thinning heuristic.
+ * `divider` draws the rule between the last negative bucket and the first
+ * positive one, so where a distribution straddles zero the sign is carried by
+ * POSITION - which side of the rule a bar sits on - and never by hue alone.
  *
  * @param {{names: string[], values: number[], label: string,
- *          fmt?: (v: number) => string, color?: string, rotate?: number|null,
- *          divider?: number|null, dividerLabel?: string, sub?: string[],
- *          yName?: string}} spec
+ *          fmt?: (v: number) => string, color?: string,
+ *          divider?: number|null, dividerLabel?: string, sub?: string[]}} spec
  */
-export function columns({
-  names, values, label, fmt = (v) => int(v), color, rotate = null,
-  divider = null, dividerLabel = "", sub, yName = "",
+export function distribution({
+  names, values, label, fmt = (v) => int(v), color,
+  divider = null, dividerLabel = "", sub,
 }) {
   const t = tokens();
   const hue = color || slot(0);
-  const tilt = rotate ?? (names.length > 7 ? 30 : 0);
   /** @type {any[]} */
   const lines = [];
   if (divider !== null) {
     lines.push({
-      // Between two categories, not on one: the boundary is the zero point,
-      // and drawing it through a bucket would claim that bucket is the zero.
-      xAxis: divider + 0.5,
+      // Between two categories, not through one: the boundary is the zero
+      // point, and drawing it on a bucket would claim that bucket is zero.
+      yAxis: divider + 0.5,
       lineStyle: { type: "dashed", width: 1.5, color: t.axis },
+      // At the right end of the rule, in the gutter the value labels already
+      // occupy - so the caption has to be two or three characters, not a
+      // sentence. What it means belongs in the card's note.
       label: {
         formatter: dividerLabel, color: t.ink2, fontSize: 11,
-        // Above the plot, horizontal. Left to itself ECharts rotates a label
-        // to follow its line, which for a vertical rule prints the words
-        // sideways down the middle of the bars.
-        position: "end", rotate: 0, distance: 6,
-        align: "center", verticalAlign: "bottom",
+        position: "end", distance: 4,
       },
     });
   }
@@ -848,40 +861,34 @@ export function columns({
     ...base(t),
     tooltip: {
       ...base(t).tooltip,
-      trigger: "axis",
-      axisPointer: { type: "shadow", shadowStyle: { color: "rgba(11,11,11,.04)" } },
-      formatter: (ps) => {
-        const p = ps[0];
-        return `<div style="color:${t.muted};font-size:11.5px">${p.axisValue}</div>`
-          + `<div style="font-weight:650;font-size:14px">${fmt(p.value)}</div>`
-          + `<div style="color:${t.ink2};font-size:11.5px">`
-          + `${sub?.[p.dataIndex] ?? label}</div>`;
-      },
+      trigger: "item",
+      formatter: (p) => `<div style="color:${t.muted};font-size:11.5px">${p.name}</div>`
+        + `<div style="font-weight:650;font-size:14px">${fmt(p.value)}</div>`
+        + (sub ? `<div style="color:${t.ink2};font-size:11.5px">${sub[p.dataIndex] ?? ""}</div>` : ""),
     },
+    // The right gutter holds the count at each bar's tip, and the divider's
+    // caption when there is one.
     grid: {
-      left: 8, right: 16,
-      // The divider's label sits above the plot, so it needs the room.
-      top: divider !== null ? 40 : 26,
-      bottom: 8, containLabel: true,
+      left: 8, right: divider !== null ? 56 : 40, top: 8, bottom: 8, containLabel: true,
     },
-    xAxis: {
-      ...catAxis(t, names, { rotate: tilt }),
-      // interval 0 = never skip a label. A histogram with half its buckets
-      // unnamed is a row of anonymous bars; the card is sized (and on a phone
-      // wrapped in .chart-scroll) so that they all fit.
-      axisLabel: { color: t.muted, fontSize: 11, rotate: tilt, interval: 0 },
+    xAxis: valueAxis(t, { fmt: (v) => int(v), splitNumber: 3 }),
+    yAxis: {
+      ...catAxis(t, names),
+      // Buckets are ordered, so they read top to bottom in their own order -
+      // never re-sorted by size, which would destroy the shape.
+      inverse: true,
+      axisLabel: { color: t.ink2, fontSize: 12, interval: 0 },
     },
-    yAxis: valueAxis(t, { name: yName, fmt: (v) => compact(v) }),
     series: [{
       type: "bar",
       name: label,
       data: values,
-      barMaxWidth: 44,
-      itemStyle: { color: hue, borderRadius: [3, 3, 0, 0] },
-      // Direct labels: a histogram is read for its shape first and its counts
-      // second, and the counts are short enough to sit on top of every bar.
+      barMaxWidth: 18,
+      itemStyle: { color: hue, borderRadius: [0, 4, 4, 0] },
+      // The count at the tip: the shape is what the chart is for, the numbers
+      // are the relief layer.
       label: {
-        show: true, position: "top", color: t.ink2, fontSize: 11,
+        show: true, position: "right", color: t.ink2, fontSize: 11.5,
         formatter: (p) => (p.value ? fmt(p.value) : ""),
       },
       ...(lines.length ? { markLine: { symbol: "none", silent: true, data: lines } } : {}),
@@ -985,11 +992,17 @@ export function scatterXY({
  * inside every tile of a twelve-by-seven grid is unreadable at card width and
  * would have to wear the fill colour to fit, which the type rules forbid.
  *
+ * `xFull` exists because the column labels have to survive a phone: twelve
+ * "1 月".."12 月" need about 320px of axis on their own, so the axis prints the
+ * bare numbers and the tooltip spells them out.
+ *
  * @param {{xNames: string[], yNames: string[],
  *          cells: [number, number, number][], label: string,
- *          fmt?: (v: number) => string, max?: number}} spec
+ *          fmt?: (v: number) => string, max?: number, xFull?: string[]}} spec
  */
-export function heatmap({ xNames, yNames, cells, label, fmt = (v) => int(v), max }) {
+export function heatmap({
+  xNames, yNames, cells, label, fmt = (v) => int(v), max, xFull,
+}) {
   const t = tokens();
   const top = max ?? Math.max(1, ...cells.map((c) => c[2]));
   return {
@@ -998,7 +1011,7 @@ export function heatmap({ xNames, yNames, cells, label, fmt = (v) => int(v), max
       ...base(t).tooltip,
       trigger: "item",
       formatter: (p) => `<div style="color:${t.muted};font-size:11.5px">`
-        + `${yNames[p.data[1]]}　${xNames[p.data[0]]}</div>`
+        + `${yNames[p.data[1]]}　${(xFull ?? xNames)[p.data[0]]}</div>`
         + `<div style="font-weight:650;font-size:14px">${fmt(p.data[2])}</div>`
         + `<div style="color:${t.ink2};font-size:11.5px">${label}</div>`,
     },
@@ -1046,6 +1059,28 @@ export function heatmap({ xNames, yNames, cells, label, fmt = (v) => int(v), max
  *
  * @param {string[]} names
  */
+
+/**
+ * The donut's legend, in HTML: swatch, name, amount, share.
+ *
+ * ECharts can draw this, but only as a rigid block whose width it decides -
+ * and with three fields per entry that block reached across the ring at phone
+ * widths. As real text it wraps, the numbers align in their own columns, and
+ * the slot colours still come from the same source as the ring.
+ *
+ * @param {{label: string, value: number}[]} items in the ring's own order
+ */
+export function donutLegend(items) {
+  const total = items.reduce((a, i) => a + i.value, 0);
+  return el("div", { class: "donut-legend" }, items.map((it, i) =>
+    el("div", { class: "donut-key" }, [
+      el("span", { class: "swatch", style: `background:${slot(i)}` }),
+      el("span", { class: "k-name", text: it.label }),
+      el("span", { class: "k-value", text: compact(it.value) }),
+      el("span", { class: "k-share", text: total ? pct(it.value / total, 1) : "" }),
+    ])));
+}
+
 export function htmlLegend(names) {
   return el("div", { class: "legend" }, names.map((name, i) =>
     el("span", { class: "key" }, [

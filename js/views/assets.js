@@ -76,7 +76,7 @@ export function render(m, _arg) {
     if (rows.length < 2) {
       const empty = card("資產走勢", {
         note: `這個期間只有 ${rows.length} 筆快照，畫不出走勢。`
-          + `history 的資料範圍是 ${d.history[0]?.day ?? DASH} 至 ${d.history.at(-1)?.day ?? DASH}。`,
+          + `資料範圍是 ${d.history[0]?.day ?? DASH} 至 ${d.history.at(-1)?.day ?? DASH}。`,
       });
       body.append(empty);
       return;
@@ -105,10 +105,6 @@ export function render(m, _arg) {
         tone: dd.pct < 0 ? "down" : "",
         sub: dd.peakDay ? `${dd.peakDay} → ${dd.troughDay}` : "沒有回撤",
       }),
-      tile({
-        label: "快照筆數", value: String(rows.length),
-        sub: "每個同步日一筆",
-      }),
     ])));
 
     // ----------------------------------------------------------- the curve ---
@@ -120,8 +116,8 @@ export function render(m, _arg) {
     }), {
       span: "span-12",
       chartClass: "chart tall",
-      note: "這是帳戶餘額的歷史，不是投資報酬：存入與提出沒有記錄在試算表裡，"
-        + "所以曲線上升可能來自市場，也可能來自轉入。報酬請看「總覽」的總報酬。",
+      note: "這是帳戶餘額的歷史，不是報酬：存入與提出沒有記錄，"
+        + "所以上升可能來自市場，也可能來自轉入。報酬看「總覽」。",
     }));
 
     // --------------------------------------------------------- by broker ---
@@ -129,7 +125,7 @@ export function render(m, _arg) {
     if (bySeries.length > 1) {
       body.append(chartCard("各券商小計", stackedArea({ days, series: bySeries }), {
         span: "half",
-        note: "IBKR 的金額由 AssetSync 用當天匯率換算成台幣後寫入。",
+        note: "IBKR 的金額是用當天匯率換算成台幣後寫入的。",
       }));
     }
 
@@ -160,7 +156,7 @@ export function render(m, _arg) {
     }), {
       span: "span-12",
       chartClass: "chart short",
-      note: "同一天重跑同步會覆寫當天那一列，所以每個日期只有一筆。",
+      note: "同一天重跑同步會覆寫該列，所以每個日期只有一筆。",
     }));
 
     // ---------------------------------------------------------- fx rate ---
@@ -174,9 +170,8 @@ export function render(m, _arg) {
         color: slot(1),
       }), { span: "half", chartClass: "chart short" });
       rateCard.append(footnote(
-        "刻意獨立成一張圖，而不是疊在資產曲線的第二個 Y 軸上："
-        + "兩條不同尺度的線放在一起，看起來的相關性其實取決於兩個軸怎麼對齊，"
-        + "那是圖表製造出來的，不在資料裡。",
+        "刻意獨立成一張圖，不疊在資產曲線的第二個 Y 軸上——"
+        + "兩條不同尺度的線放在一起，看起來的相關性只取決於兩個軸怎麼對齊。",
       ));
       body.append(rateCard);
     }

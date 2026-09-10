@@ -150,27 +150,37 @@ export function shareCell(v) {
 /**
  * A card whose body is one chart.
  *
- * `scroll` wraps the canvas in a box that scrolls sideways on a phone. A chart
- * squeezed into a 340px viewport is not a smaller chart - ECharts starts hiding
- * category labels and the marks collapse into each other - so anything with
- * more than a handful of categories asks for it. The wrapper does nothing at
- * desktop widths; the floor width only applies under the phone breakpoint, and
- * it is the same rule the tables already follow.
+ * Charts always fit their card. Sideways scrolling was tried and removed: on a
+ * phone it fights the page's own gesture, and on a chart with its own zoom
+ * (the candlesticks) it means two conflicting ways to move along the same
+ * axis. Anything with too many categories for the width becomes a horizontal
+ * form that grows downwards instead - see `distribution()`.
  *
  * @param {string} title
  * @param {any} option ECharts option, from a builder in charts.js
  * @param {{span?: string, note?: string, warn?: boolean, chartClass?: string,
- *          legend?: HTMLElement, height?: number, scroll?: boolean}} [opts]
+ *          legend?: HTMLElement, height?: number}} [opts]
  */
-export function chartCard(
-  title, option, { span, note, warn, chartClass, legend, height, scroll } = {},
-) {
+export function chartCard(title, option, { span, note, warn, chartClass, legend, height } = {}) {
   const node = card(title, { span, note, warn });
   if (legend) node.append(legend);
-  const host = mount(node, option, { class: chartClass || "chart", height });
-  node.append(scroll ? el("div", { class: "chart-scroll" }, host) : host);
+  node.append(mount(node, option, { class: chartClass || "chart", height }));
   return node;
 }
+
+/**
+ * The name a chart should print for a holding.
+ *
+ * US names are corporate legal names - "VANGUARD S&P 500 ETF", "INTERACTIVE
+ * BROKERS GRO-CL A" - and in a horizontal bar chart the longest one sets the
+ * left gutter for every row, squeezing the plot into whatever is left. The
+ * ticker is what the reader actually calls it, and it is short. Taiwanese
+ * names are already short and are the familiar form, so they stay.
+ *
+ * @param {{name?: string, symbol: string, market?: 'TW'|'US', currency?: string}} row
+ */
+export const chartName = (row) =>
+  (row.market === "US" || row.currency === "USD" ? row.symbol : (row.name || row.symbol));
 
 /** Small print under a chart - the caveats that keep a number honest. */
 export const footnote = (text) => el("p", { class: "footnote", text });

@@ -21,7 +21,7 @@ import {
 } from "../util.js";
 import { derive } from "../model.js";
 import { treemap, divergingBars, bubble, htmlLegend, barRows, mount } from "../charts.js";
-import { tile, tileRow, chartCard, barCell, shareCell, footnote } from "./parts.js";
+import { tile, tileRow, chartCard, chartName, barCell, shareCell, footnote } from "./parts.js";
 
 /** @typedef {import('../types.js').Model} Model */
 
@@ -67,9 +67,8 @@ export function render(m, _arg) {
   if (groups.length) {
     const tmCard = card("配置全景", {
       span: "span-12",
-      note: "面積是市值，顏色是持有它的券商。報酬率刻意不用顏色表示——"
-        + "紅綠漸層是色盲最容易誤讀的組合，而且顏色是這張圖唯一的通道。"
-        + "報酬率請看下一張圖，那裡由位置表示正負。",
+      note: "面積是市值，顏色是券商。報酬率刻意不用顏色表示——紅綠漸層是色盲"
+        + "最容易誤讀的組合，而顏色是這張圖唯一的通道。報酬率看下一張。",
     });
     // A treemap is a single ECharts series, so it has no series names for a
     // built-in legend - identity has to come from real HTML beside it.
@@ -84,7 +83,8 @@ export function render(m, _arg) {
   const ranked = d.bySymbol.filter((h) => h.valueTwd > 0)
     .sort((a, b) => b.pnlTwd - a.pnlTwd);
   grid.append(chartCard("未實現損益排行", divergingBars({
-    names: ranked.map((h) => h.name || h.symbol),
+    // Tickers for US holdings - their legal names would set the left gutter.
+    names: ranked.map(chartName),
     values: ranked.map((h) => h.pnlTwd),
     label: "未實現損益 (TWD)",
     sub: ranked.map((h) => `${h.symbol}　${signedPct(h.roi)}　市值 ${money(h.valueTwd)}`
@@ -92,8 +92,8 @@ export function render(m, _arg) {
   }), {
     span: "half",
     height: barRows(ranked.length, { min: 380 }),
-    note: "正負由左右方向表示，金額直接標在棒子末端，顏色只是輔助。"
-      + "同一檔在多家券商的部位已合併。",
+    note: "正負由左右方向表示，金額標在棒子末端，顏色只是輔助。"
+      + "同一檔在多家券商的部位已合併，美股顯示代號。",
   }));
 
   // -------------------------------------------------------------- bubble ---
@@ -113,9 +113,8 @@ export function render(m, _arg) {
     }), {
       span: "half",
       chartClass: "chart tall",
-      note: "泡泡大小是市值。左下角是小賠的小部位；左上角是「賠錢又押得重」，"
-        + "那是這張圖真正要抓的風險點。"
-        + "這裡按券商分色，所以同一檔股票在兩家券商會是兩個泡泡。",
+      note: "泡泡大小是市值。左上角是「賠錢又押得重」，那是這張圖要抓的風險點。"
+        + "按券商分色，所以同一檔在兩家券商會是兩個泡泡。",
     }));
   }
 
@@ -125,8 +124,8 @@ export function render(m, _arg) {
   const tableCard = card("全部持股", {
     span: "span-12",
     note: t.delisted
-      ? `含 ${t.delisted} 檔已下市（名稱空白、股價 0、報酬率 −100%）。`
-        + "試算表的 summary 會把這些列丟掉，所以它的總市值與這裡對不上。"
+      ? `含 ${t.delisted} 檔已下市（名稱空白、股價 0）。試算表的 summary 會丟掉這些列，`
+        + "所以它的總市值與這裡對不上。"
       : undefined,
   });
   tableCard.append(table([
@@ -151,8 +150,7 @@ export function render(m, _arg) {
     { key: "weight", label: "佔持股", fmt: (v) => shareCell(v) },
   ], d.holdings, { sortKey: "valueTwd", scroll: true }));
   tableCard.append(footnote(
-    "券商分頁一律是原幣；「(TWD)」的欄位由本站以最新匯率換算，"
-    + `目前用 ${d.rate ? d.rate.toFixed(4) : DASH}。`,
+    `券商分頁一律是原幣；「(TWD)」欄由本站換算，目前匯率 ${d.rate ? d.rate.toFixed(4) : DASH}。`,
   ));
   grid.append(tableCard);
 

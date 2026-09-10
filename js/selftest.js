@@ -20,6 +20,10 @@
 //      consecutive totals.
 //   3. **Structural rules.** A dash becomes null and not zero, a percentage is
 //      not double-scaled, a broker sheet stays in its own currency.
+//   4. **Independent recomputation.** `fifo.js` rebuilds the buy-sell pairs
+//      from `trades_YYYY` and checks its own totals against the sheet's
+//      per-(broker, year, symbol) 已實現損益 rows - two programs over one
+//      source, agreeing at the finest grain the workbook publishes.
 //
 // All of which means this board is worth keeping on the deployed site: it runs
 // against whatever workbook was just loaded, and if AssetSync changes a column
@@ -28,6 +32,7 @@
 // It is deliberately not in the tab bar - reach it with `?selftest=1`.
 
 import { splitFactor, adjustedQty } from "./parse/adjustments.js";
+import { match as fifoMatch, reconcile } from "./fifo.js";
 
 /** @typedef {import('./types.js').Model} Model */
 
@@ -301,6 +306,101 @@ function againstSheetTotals(s, m) {
   s.eq("history 的資產變化 = 相鄰兩列總資產之差", Math.round(worstDelta), 0, { tol: 1 });
 }
 
+// ------------------------------------------------- FIFO against the sheet ---
+
+/**
+ * The trade-by-trade FIFO in `fifo.js`, checked against AssetSync's own
+ * realized rows.
+ *
+ * Same philosophy as everything else here: nothing is compared against a
+ * number written down by hand. The workbook aggregates realized P&L per
+ * (broker, year, symbol) using its own FIFO; this site recomputes the pairs
+ * from `trades_YYYY` and the `adjustments` sheet. Two independent programs
+ * over the same source, at the finest grain the sheet publishes - so if the
+ * matching order, the share-unit restatement or the fee convention slips, the
+ * groups stop agreeing and it shows up here rather than as a plausible-looking
+ * win rate on the 行為分析 board.
+ *
+ * Two kinds of group are excluded, and both are declared rather than hidden:
+ * a `pending` row, where the sheet itself has no cost; and a position holding
+ * shares whose basis lives in cost_override.json outside the workbook, where
+ * this module deliberately refuses to invent one.
+ *
+ * @param {Suite} s
+ * @param {Model} m
+ */
+function fifoAgainstSheet(s, m) {
+  const result = fifoMatch(m);
+  const { rows, compared, skipped, worst } = reconcile(m, result);
+
+  s.ok("FIFO 有配對到成交紀錄", result.pairs.length > 0, true, { drifts: true });
+  s.note("FIFO 配對筆數", result.pairs.length);
+  s.note("未平倉批次數", result.open.length);
+  s.note("可對照的（券商 × 年度 × 個股）組數", compared);
+
+  const bad = rows.filter((r) => !r.ok);
+  s.eq("FIFO 逐筆損益 = 試算表年度彙總（不合的組數）", bad.length, 0);
+  if (worst) {
+    // The label names the position, so a failure points at one holding instead
+    // of at "the FIFO". Printed as a difference, never as the amounts.
+    s.ok(
+      `最大差異：${worst.broker} ${worst.year} ${worst.symbol}`
+      + `（差 ${Math.round((worst.diff ?? 0) * 100) / 100}，容許 ${Math.round(worst.tolerance)}）`,
+      Math.abs(worst.diff ?? 0) <= worst.tolerance, true, { drifts: true });
+  }
+
+  // Excluded groups are reported by count and by reason. A jump here means a
+  // new position has acquired shares the workbook cannot cost, which is worth
+  // seeing even though it is not a failure.
+  s.note("排除比對的組數（成本不在試算表裡）", skipped);
+  for (const u of result.uncovered) {
+    s.note(
+      `${u.broker} ${u.symbol} 有賣出股數配不到買進批次（${u.years.join("、")} 年）`,
+      `${Math.round(u.qty * 1e4) / 1e4} 股`);
+  }
+
+  // Every pair must be internally consistent - this catches an apportioning
+  // slip that happens to cancel out inside a year total.
+  s.ok("每筆配對的損益 = 賣出金額 − 成本 − 費稅",
+    result.pairs.every((p) => Math.abs(p.pnl - (p.proceeds - p.cost - p.feeTax)) < 1e-6));
+  s.ok("每筆配對的賣出日不早於買進日",
+    result.pairs.every((p) => p.sellDate >= p.buyDate));
+  s.ok("每筆配對的股數為正", result.pairs.every((p) => p.qty > 0));
+
+  // The pairs plus what is still open must account for every share ever
+  // bought, in today's units. This is the FIFO analogue of the reconciliation
+  // above and it needs no expectations either.
+  const A = m.adjustments;
+  const boughtByKey = new Map();
+  const bump = (k, v) => boughtByKey.set(k, (boughtByKey.get(k) ?? 0) + v);
+  for (const t of m.trades) {
+    if (t.side !== "buy") continue;
+    bump(`${t.broker} ${t.symbol}`, t.qty * splitFactor(A, t.symbol, t.date));
+  }
+  for (const a of A) {
+    if (a.kind === "split" || a.qty === null || a.costPerShare === null) continue;
+    const qty = a.unitsAsOfDate ? a.qty * splitFactor(A, a.symbol, a.date) : a.qty;
+    for (const b of ["fubon", "sinopac", "ibkr"].filter((x) => a.scope.toLowerCase().includes(x))) {
+      bump(`${b} ${a.symbol}`, qty);
+    }
+  }
+  const consumed = new Map();
+  for (const p of result.pairs) {
+    const k = `${p.broker} ${p.symbol}`;
+    consumed.set(k, (consumed.get(k) ?? 0) + p.qty);
+  }
+  for (const o of result.open) {
+    const k = `${o.broker} ${o.symbol}`;
+    consumed.set(k, (consumed.get(k) ?? 0) + o.qty);
+  }
+  let worstShare = 0;
+  for (const [k, bought] of boughtByKey) {
+    worstShare = Math.max(worstShare, Math.abs(bought - (consumed.get(k) ?? 0)));
+  }
+  s.eq("買進股數 = 已配對 + 未平倉（今日單位）", Math.round(worstShare * 1e6) / 1e6, 0,
+    { tol: 1e-6 });
+}
+
 /** Block and field names, for a readable check label. */
 const BLOCK = {
   holdings: "持股庫存", realized: "已實現損益", dividends: "除權息",
@@ -322,6 +422,7 @@ export function runSelfTest(m) {
 
   structural(s, m);
   againstSheetTotals(s, m);
+  fifoAgainstSheet(s, m);
 
   // Informational: this gap is expected, and knowing its size is what tells a
   // parsing slip from the known upstream difference. history's 富邦現金 is

@@ -24,6 +24,7 @@ import * as assets from "./views/assets.js";
 import * as positions from "./views/positions.js";
 import * as pnl from "./views/pnl.js";
 import * as trades from "./views/trades.js";
+import * as behavior from "./views/behavior.js";
 import * as selftest from "./views/selftest.js";
 
 /** @typedef {import('./types.js').Model} Model */
@@ -43,6 +44,7 @@ const VIEWS = /** @type {const} */ ([
   ["positions", "持股", positions, false],
   ["pnl", "損益", pnl, false],
   ["trades", "交易明細", trades, false],
+  ["behavior", "行為分析", behavior, false],
   ["selftest", "自我測試", selftest, true],
 ]);
 

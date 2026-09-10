@@ -437,10 +437,13 @@ function candleCard({ name, symbol, buys, sells, avgCost, price, currency, settl
         : priceBreaks.map((b) => ({ date: b.date, label: "價格不連續" }));
 
       host.remove();
-      node.append(mount(node, candles({
+      // Wrapped so a phone scrolls the candles sideways instead of squeezing
+      // two panels and a zoom slider into 340px, where the bodies collapse into
+      // a smear and half the date labels disappear.
+      node.append(el("div", { class: "chart-scroll" }, mount(node, candles({
         rows, buys: withPlot(buys), sells: withPlot(sells),
         ma, avgCost, currency, marks,
-      }), { class: "chart candles" }));
+      }), { class: "chart candles" })));
       node.append(footnote(
         `股價來源：${source}${cached ? "（本機快取）" : ""}。`
         + (converted

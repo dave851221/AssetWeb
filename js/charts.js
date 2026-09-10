@@ -533,7 +533,11 @@ export function divergingBars({ names, values, label, sub, fmt = (v) => signedMo
         + `<div style="font-weight:650;font-size:14px">${fmt(p.value)}</div>`
         + (sub ? `<div style="color:${t.ink2};font-size:11.5px">${sub[p.dataIndex] ?? ""}</div>` : ""),
     },
-    grid: { left: 8, right: 16, top: 8, bottom: 8, containLabel: true },
+    // A gutter on both sides beyond what containLabel reserves. The value label
+    // sits OUTSIDE the bar end, and containLabel only accounts for the axis's
+    // own labels - so the longest bar in either direction ran its label into
+    // the category names on the left.
+    grid: { left: 52, right: 52, top: 8, bottom: 8, containLabel: true },
     xAxis: {
       ...valueAxis(t),
       // The zero line is the reference the whole chart is read against, so it
@@ -788,6 +792,248 @@ export function bubble({ groups }) {
       itemStyle: { color: slot(i), opacity: 0.75, borderColor: t.surface, borderWidth: 2 },
       emphasis: { itemStyle: { opacity: 1 } },
     })),
+  };
+}
+
+/**
+ * Categorical columns - one series, one hue. The histogram form.
+ *
+ * A distribution is a count per bucket, and a count has no sign, no ranking and
+ * no second dimension - so it gets one colour and nothing else. Where the
+ * buckets straddle zero (a return, a premium over the average cost), `divider`
+ * puts a rule between the last negative bucket and the first positive one: the
+ * sign is then carried by POSITION along the axis, which is the requirement
+ * red-vs-green cannot meet on its own. Bucket labels print their own signs too.
+ *
+ * Vertical rather than horizontal because the buckets are ordered - a
+ * distribution read left to right is the convention every reader already has.
+ *
+ * `rotate` defaults to slanting the labels once there are enough buckets that
+ * horizontal ones would collide. It is never allowed to *drop* a label: a bar
+ * whose bucket is unnamed cannot be read at all, which is why `interval: 0` is
+ * forced here rather than left to ECharts' thinning heuristic.
+ *
+ * @param {{names: string[], values: number[], label: string,
+ *          fmt?: (v: number) => string, color?: string, rotate?: number|null,
+ *          divider?: number|null, dividerLabel?: string, sub?: string[],
+ *          yName?: string}} spec
+ */
+export function columns({
+  names, values, label, fmt = (v) => int(v), color, rotate = null,
+  divider = null, dividerLabel = "", sub, yName = "",
+}) {
+  const t = tokens();
+  const hue = color || slot(0);
+  const tilt = rotate ?? (names.length > 7 ? 30 : 0);
+  /** @type {any[]} */
+  const lines = [];
+  if (divider !== null) {
+    lines.push({
+      // Between two categories, not on one: the boundary is the zero point,
+      // and drawing it through a bucket would claim that bucket is the zero.
+      xAxis: divider + 0.5,
+      lineStyle: { type: "dashed", width: 1.5, color: t.axis },
+      label: {
+        formatter: dividerLabel, color: t.ink2, fontSize: 11,
+        // Above the plot, horizontal. Left to itself ECharts rotates a label
+        // to follow its line, which for a vertical rule prints the words
+        // sideways down the middle of the bars.
+        position: "end", rotate: 0, distance: 6,
+        align: "center", verticalAlign: "bottom",
+      },
+    });
+  }
+
+  return {
+    ...base(t),
+    tooltip: {
+      ...base(t).tooltip,
+      trigger: "axis",
+      axisPointer: { type: "shadow", shadowStyle: { color: "rgba(11,11,11,.04)" } },
+      formatter: (ps) => {
+        const p = ps[0];
+        return `<div style="color:${t.muted};font-size:11.5px">${p.axisValue}</div>`
+          + `<div style="font-weight:650;font-size:14px">${fmt(p.value)}</div>`
+          + `<div style="color:${t.ink2};font-size:11.5px">`
+          + `${sub?.[p.dataIndex] ?? label}</div>`;
+      },
+    },
+    grid: {
+      left: 8, right: 16,
+      // The divider's label sits above the plot, so it needs the room.
+      top: divider !== null ? 40 : 26,
+      bottom: 8, containLabel: true,
+    },
+    xAxis: {
+      ...catAxis(t, names, { rotate: tilt }),
+      // interval 0 = never skip a label. A histogram with half its buckets
+      // unnamed is a row of anonymous bars; the card is sized (and on a phone
+      // wrapped in .chart-scroll) so that they all fit.
+      axisLabel: { color: t.muted, fontSize: 11, rotate: tilt, interval: 0 },
+    },
+    yAxis: valueAxis(t, { name: yName, fmt: (v) => compact(v) }),
+    series: [{
+      type: "bar",
+      name: label,
+      data: values,
+      barMaxWidth: 44,
+      itemStyle: { color: hue, borderRadius: [3, 3, 0, 0] },
+      // Direct labels: a histogram is read for its shape first and its counts
+      // second, and the counts are short enough to sit on top of every bar.
+      label: {
+        show: true, position: "top", color: t.ink2, fontSize: 11,
+        formatter: (p) => (p.value ? fmt(p.value) : ""),
+      },
+      ...(lines.length ? { markLine: { symbol: "none", silent: true, data: lines } } : {}),
+    }],
+  };
+}
+
+/**
+ * A general scatter of two measures, grouped into at most three categories.
+ *
+ * The three-colour cap is not stylistic. A scatter is an all-pairs form - any
+ * two marks can end up adjacent - and only the first three categorical slots
+ * clear the colour-vision gate for every pair. A fourth group has to fold into
+ * "其他" before it gets here.
+ *
+ * `zeroLine` darkens y = 0 where the y measure has a sign, so the split between
+ * winners and losers is a position on the plot and not a hue.
+ *
+ * @param {{groups: {name: string, points: {x: number, y: number, r?: number,
+ *            name: string, sub?: string}[]}[],
+ *          xName?: string, yName?: string,
+ *          xFmt?: (v: number) => string, yFmt?: (v: number) => string,
+ *          zeroLine?: boolean, xLabelFmt?: (v: number) => string,
+ *          yLabelFmt?: (v: number) => string}} spec
+ */
+export function scatterXY({
+  groups, xName = "", yName = "",
+  xFmt = (v) => String(v), yFmt = (v) => String(v),
+  xLabelFmt, yLabelFmt, zeroLine = false,
+}) {
+  const t = tokens();
+  const maxR = Math.max(1, ...groups.flatMap((g) => g.points.map((p) => p.r ?? 0)));
+  const sized = maxR > 1;
+
+  return {
+    ...base(t),
+    tooltip: {
+      ...base(t).tooltip,
+      trigger: "item",
+      formatter: (p) => `<div style="color:${t.muted};font-size:11.5px">${p.data.name}</div>`
+        + `<div style="font-weight:650;font-size:14px">${yFmt(p.data.y)}</div>`
+        + `<div style="color:${t.ink2};font-size:11.5px">${xName}　${xFmt(p.data.x)}</div>`
+        + (p.data.sub ? `<div style="color:${t.ink2};font-size:11.5px">${p.data.sub}</div>` : ""),
+    },
+    // Top-LEFT, unlike the other builders. A scatter is one of the charts that
+    // gets a floor width and scrolls on a phone, and a right-anchored legend
+    // would start off-screen there - identity has to be visible before the
+    // reader thinks to swipe. The y-axis name takes the line below it.
+    legend: groups.length > 1 ? { ...legend(t), right: undefined, left: 0 } : undefined,
+    grid: { left: 8, right: 24, top: groups.length > 1 ? 50 : 16, bottom: 28, containLabel: true },
+    xAxis: {
+      ...valueAxis(t, { fmt: xLabelFmt ?? ((v) => compact(v)) }),
+      name: xName,
+      nameLocation: "middle",
+      nameGap: 26,
+      nameTextStyle: { color: t.muted, fontSize: 11 },
+      splitLine: splitLine(t),
+      scale: true,
+    },
+    yAxis: {
+      ...valueAxis(t, { fmt: yLabelFmt ?? ((v) => compact(v)) }),
+      name: yName,
+      nameLocation: "end",
+      nameGap: 12,
+      nameTextStyle: { color: t.muted, fontSize: 11, align: "left" },
+      scale: true,
+    },
+    series: [
+      ...groups.slice(0, 3).map((g, i) => ({
+        type: "scatter",
+        name: g.name,
+        data: g.points.map((p) => ({ value: [p.x, p.y, p.r ?? 0], ...p })),
+        symbolSize: sized
+          ? (d) => 8 + 26 * Math.sqrt((d?.[2] ?? 0) / maxR)
+          : 11,
+        // A surface ring keeps overlapping marks legible.
+        itemStyle: { color: slot(i), opacity: 0.75, borderColor: t.surface, borderWidth: 1.5 },
+        emphasis: { itemStyle: { opacity: 1 } },
+        // The zero rule rides on the first series so it is drawn once.
+        ...(i === 0 && zeroLine ? {
+          markLine: {
+            symbol: "none", silent: true,
+            data: [{ yAxis: 0, lineStyle: { type: "solid", width: 1.25, color: t.axis } }],
+            label: { show: false },
+          },
+        } : {}),
+      })),
+    ],
+  };
+}
+
+/**
+ * A heatmap over two categorical axes, with a sequential ramp for magnitude.
+ *
+ * One hue, light to dark: the value has a natural low-to-high order and no
+ * sign, which is exactly what a single-hue ramp encodes and what a categorical
+ * palette would destroy. The `visualMap` bar under the plot is the legend -
+ * a heatmap is one series, so ECharts has no series names to build one from.
+ *
+ * Cells carry no printed value at these densities; the tooltip does. A number
+ * inside every tile of a twelve-by-seven grid is unreadable at card width and
+ * would have to wear the fill colour to fit, which the type rules forbid.
+ *
+ * @param {{xNames: string[], yNames: string[],
+ *          cells: [number, number, number][], label: string,
+ *          fmt?: (v: number) => string, max?: number}} spec
+ */
+export function heatmap({ xNames, yNames, cells, label, fmt = (v) => int(v), max }) {
+  const t = tokens();
+  const top = max ?? Math.max(1, ...cells.map((c) => c[2]));
+  return {
+    ...base(t),
+    tooltip: {
+      ...base(t).tooltip,
+      trigger: "item",
+      formatter: (p) => `<div style="color:${t.muted};font-size:11.5px">`
+        + `${yNames[p.data[1]]}　${xNames[p.data[0]]}</div>`
+        + `<div style="font-weight:650;font-size:14px">${fmt(p.data[2])}</div>`
+        + `<div style="color:${t.ink2};font-size:11.5px">${label}</div>`,
+    },
+    grid: { left: 8, right: 16, top: 12, bottom: 46, containLabel: true },
+    xAxis: {
+      ...catAxis(t, xNames),
+      splitArea: { show: false },
+      axisLabel: { color: t.muted, fontSize: 11, interval: 0 },
+    },
+    yAxis: {
+      ...catAxis(t, yNames),
+      axisLabel: { color: t.ink2, fontSize: 12, interval: 0 },
+      axisLine: { show: false },
+    },
+    visualMap: {
+      min: 0, max: top,
+      calculable: false,
+      orient: "horizontal",
+      // Left, not centred: this chart gets a floor width and scrolls on a
+      // phone, and the visual map IS the legend - it has to be on screen
+      // before the reader swipes, or the shading means nothing.
+      left: 8, bottom: 4,
+      itemWidth: 12, itemHeight: 110,
+      textStyle: { color: t.muted, fontSize: 11 },
+      text: [fmt(top), "0"],
+      inRange: { color: [t.surface, ...t.seq] },
+    },
+    series: [{
+      type: "heatmap",
+      name: label,
+      data: cells,
+      // The surface gap again, so the grid reads as tiles rather than a wash.
+      itemStyle: { borderColor: t.surface, borderWidth: 2, borderRadius: 3 },
+      emphasis: { itemStyle: { borderColor: t.ink, borderWidth: 2 } },
+    }],
   };
 }
 

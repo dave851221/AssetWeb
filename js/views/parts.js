@@ -150,15 +150,25 @@ export function shareCell(v) {
 /**
  * A card whose body is one chart.
  *
+ * `scroll` wraps the canvas in a box that scrolls sideways on a phone. A chart
+ * squeezed into a 340px viewport is not a smaller chart - ECharts starts hiding
+ * category labels and the marks collapse into each other - so anything with
+ * more than a handful of categories asks for it. The wrapper does nothing at
+ * desktop widths; the floor width only applies under the phone breakpoint, and
+ * it is the same rule the tables already follow.
+ *
  * @param {string} title
  * @param {any} option ECharts option, from a builder in charts.js
  * @param {{span?: string, note?: string, warn?: boolean, chartClass?: string,
- *          legend?: HTMLElement, height?: number}} [opts]
+ *          legend?: HTMLElement, height?: number, scroll?: boolean}} [opts]
  */
-export function chartCard(title, option, { span, note, warn, chartClass, legend, height } = {}) {
+export function chartCard(
+  title, option, { span, note, warn, chartClass, legend, height, scroll } = {},
+) {
   const node = card(title, { span, note, warn });
   if (legend) node.append(legend);
-  node.append(mount(node, option, { class: chartClass || "chart", height }));
+  const host = mount(node, option, { class: chartClass || "chart", height });
+  node.append(scroll ? el("div", { class: "chart-scroll" }, host) : host);
   return node;
 }
 

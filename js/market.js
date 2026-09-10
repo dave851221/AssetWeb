@@ -64,8 +64,17 @@ const CACHE_PREFIX = "aw.px.";
 const ACTION_PREFIX = "aw.ca.";
 const INDEX_KEY = "aw.px.index";
 const TOKEN_KEY = "aw.finmindToken";
-/** Symbols kept on disk. Past this the least recently used is dropped. */
-const MAX_CACHED = 40;
+/**
+ * Symbols kept on disk. Past this the least recently used is dropped.
+ *
+ * Sized for the 行為分析 board, which is the only screen that wants every
+ * traded symbol's series at once - at 40 it evicted a symbol the moment one
+ * more stock was traded, and the next visit paid for a full refetch of the
+ * whole set. A series is roughly 20KB, so this ceiling costs about a megabyte
+ * against a multi-megabyte quota, and `writeCache` already sheds half the
+ * cache and retries if a browser disagrees.
+ */
+const MAX_CACHED = 64;
 /** How long a cache entry is trusted without asking for newer bars. */
 const FRESH_MS = 6 * 3600 * 1000;
 

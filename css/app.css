@@ -431,6 +431,18 @@ table.data td.down { color: var(--down); }
   height: 560px; display: flex; align-items: center; justify-content: center;
 }
 
+/* Wide charts scroll inside their own box on a phone, exactly as wide tables
+   do. Below the breakpoint the canvas gets a floor width instead of being
+   squeezed: ECharts responds to a 340px container by hiding half the category
+   labels and letting the marks overlap, which is worse than a swipe. At desktop
+   widths this wrapper is inert - no floor, no scrollbar. */
+.chart-scroll { min-width: 0; }
+
+/* A container that adds no box of its own - its children join the parent grid
+   directly, so an async section can replace a group of cards in one call while
+   each card keeps its own column span. */
+.subgrid { display: contents; }
+
 /* A legend, in HTML, for the forms ECharts cannot legend itself. */
 .legend {
   display: flex; flex-wrap: wrap; gap: 14px; margin: 4px 0 10px;
@@ -498,12 +510,26 @@ kbd, code { font-family: ui-monospace, "Cascadia Mono", monospace; font-size: 12
   table.data th, table.data td { padding: 6px 7px; }
   .scroll-y { max-height: 360px; }
   .bar-cell { min-width: 74px; }
-  .chart { height: 250px; }
-  .chart.tall { height: 340px; }
+  .chart { height: 260px; }
+  .chart.tall { height: 360px; }
   .chart.short { height: 190px; }
-  .chart.candles, .chart-load { height: 420px; }
+  /* Two stacked panels plus a zoom slider need more than a single-panel chart,
+     and the price panel is the one that gets squeezed if this is too tight. */
+  .chart.candles, .chart-load { height: 460px; }
   .banner { padding: 8px 12px; font-size: 12.5px; }
   .gate { padding: 8vh 16px; }
+
+  /* The floor widths. A chart wrapped in .chart-scroll keeps a legible size and
+     the box scrolls; the page itself still never moves sideways. */
+  .chart-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Room for the scrollbar, so it does not sit on top of the axis labels. */
+    padding-bottom: 2px;
+  }
+  .chart-scroll > .chart { min-width: 520px; }
+  .chart-scroll > .chart.candles { min-width: 640px; }
+  .chart-scroll > .chart.tall { min-width: 560px; }
 }
 
 @media (max-width: 420px) {

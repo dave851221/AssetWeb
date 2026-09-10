@@ -17,6 +17,13 @@
 </head>
 <body>
 
+<!-- Title bar and tab strip pin together as one block. They are wrapped rather
+     than each made sticky on its own, because a tab strip that sticks BELOW the
+     title bar needs to know that bar's exact height - and a hard-coded offset is
+     wrong the moment the bar's height changes (a different breakpoint, a larger
+     font, a longer status line). One sticky ancestor needs no offset at all. -->
+<div class="app-head">
+
 <header class="topbar">
   <div class="brand">
     <span class="brand-mark" aria-hidden="true">📊</span>
@@ -50,12 +57,18 @@
   </div>
 </header>
 
+<nav class="tabs" id="tabs" hidden></nav>
+
+</div><!-- /.app-head -->
+
 <!-- Degradation lane: silent renewal failed, access removed, wrong file picked,
      parser warnings. None of these may become a blank screen - cached data
-     keeps showing underneath. -->
-<div id="banners" class="banners"></div>
+     keeps showing underneath.
 
-<nav class="tabs" id="tabs" hidden></nav>
+     Below the pinned block on purpose: a banner is a notice about the data, not
+     a navigation control, so it scrolls away with the content it describes
+     rather than holding a permanent strip of a phone screen. -->
+<div id="banners" class="banners"></div>
 
 <main id="main">
   <section id="gate" class="gate">
